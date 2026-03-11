@@ -6,9 +6,15 @@ Supports: macOS (.app), Windows (.exe), Linux
 """
 import os
 import sys
+import io
 import shutil
 import subprocess
 import platform
+
+# Fix Windows console encoding for Korean
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 
 APP_NAME = "PCM_Generator"
