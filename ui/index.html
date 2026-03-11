@@ -1,0 +1,1681 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCM Channel Config Generator | IRIG 106 Ch.4</title>
+<style>
+:root {
+  --bg:#F0F4F8; --panel:#FFF; --border:#D1D9E0;
+  --accent:#1A6FB5; --accent2:#0F4C81;
+  --text:#1A202C; --text2:#4A5568; --text3:#718096;
+  --ok:#2D7D46; --warn:#B45309; --err:#B91C1C;
+  --ok-bg:#DCFCE7; --warn-bg:#FEF3C7; --err-bg:#FEE2E2;
+  --c1:#16A34A; --c2:#D97706; --r:6px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg);color:var(--text);font-size:13px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── Top Bar ── */
+#tb{background:var(--accent2);color:#fff;padding:0 14px;height:42px;display:flex;align-items:center;gap:10px;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+#tb h1{font-size:13px;font-weight:600;letter-spacing:.3px}
+.sp{flex:1}
+.bt{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:5px 11px;border-radius:var(--r);cursor:pointer;font-size:12px;transition:background .15s;white-space:nowrap}
+.bt:hover{background:rgba(255,255,255,.28)}
+.bt.p{background:#2563EB;border-color:#1D4ED8}
+.bt.p:hover{background:#1D4ED8}
+
+/* ── Layout ── */
+#main{display:flex;flex:1;overflow:hidden}
+#left{width:310px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto}
+#right{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── Section ── */
+.sec{padding:12px 14px;border-bottom:1px solid var(--border)}
+.sh{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text3);margin-bottom:9px;display:flex;align-items:center;gap:6px}
+
+/* ── Badge ── */
+#cbadge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;margin-left:auto}
+#cbadge.c1{background:#DCFCE7;color:var(--c1);border:1px solid #BBF7D0}
+#cbadge.c2{background:#FEF3C7;color:var(--c2);border:1px solid #FDE68A}
+
+/* ── Form ── */
+.fr{margin-bottom:7px}
+.fr label{display:block;font-size:11px;color:var(--text2);margin-bottom:3px;font-weight:500}
+.fr input,.fr select{width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:var(--r);font-size:12px;background:#FAFBFC;color:var(--text);transition:border-color .15s,box-shadow .15s}
+.fr input:focus,.fr select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(26,111,181,.12)}
+.fr input.er{border-color:var(--err);background:#FFF5F5}
+.fr .hint{font-size:10px;color:var(--text3);margin-top:2px}
+.fr .hint.er{color:var(--err)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:7px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:7px}
+
+/* ── Stats ── */
+#sbox{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.sc{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:7px 9px}
+.sc .lb{font-size:9px;color:var(--text3);margin-bottom:1px;text-transform:uppercase;letter-spacing:.4px}
+.sc .vl{font-size:14px;font-weight:700;color:var(--accent)}
+.sc .ut{font-size:9px;color:var(--text3);font-weight:400}
+.sc.full{grid-column:1/-1}
+.sc.ok .vl{color:var(--ok)} .sc.warn .vl{color:var(--warn)} .sc.er .vl{color:var(--err)}
+.pb-w{margin-top:5px} .pb-l{display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:3px}
+.pb-b{height:5px;background:var(--border);border-radius:3px;overflow:hidden}
+.pb-f{height:100%;border-radius:3px;transition:width .3s}
+.pb-f.ok{background:var(--ok)} .pb-f.warn{background:var(--warn)} .pb-f.er{background:var(--err)}
+
+/* ── Mini preview ── */
+#mp{display:flex;flex-wrap:wrap;gap:1px;margin-top:4px}
+.mc{width:7px;height:7px;border-radius:1px;flex-shrink:0}
+
+/* ── Validation ── */
+#vmsg{display:flex;flex-direction:column;gap:3px}
+.vm{display:flex;align-items:flex-start;gap:5px;padding:5px 7px;border-radius:var(--r);font-size:11px;line-height:1.4}
+.vm.er{background:var(--err-bg);color:#991B1B;border-left:3px solid var(--err)}
+.vm.warn{background:var(--warn-bg);color:#92400E;border-left:3px solid #F59E0B}
+.vm.info{background:#EFF6FF;color:#1E40AF;border-left:3px solid #3B82F6}
+.vm .ic{font-size:11px;flex-shrink:0;margin-top:1px}
+
+/* ── Tabs ── */
+#tabs{background:var(--panel);border-bottom:1px solid var(--border);display:flex;padding:0 14px;flex-shrink:0}
+.tab{padding:9px 15px;font-size:12px;font-weight:500;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;white-space:nowrap}
+.tab:hover{color:var(--accent)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.tab .cnt{display:inline-block;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:1px 5px;font-size:10px;margin-left:4px;color:var(--text2)}
+#tc{flex:1;overflow-y:auto;padding:14px}
+.tp{display:none}
+.tp.active{display:block}
+
+/* ── Tables ── */
+.dt{width:100%;border-collapse:collapse;font-size:12px}
+.dt th{background:var(--bg);border:1px solid var(--border);padding:5px 9px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text3);white-space:nowrap}
+.dt td{border:1px solid var(--border);padding:6px 9px;color:var(--text);vertical-align:middle}
+.dt tr:hover td{background:#F7FAFC}
+.dt tr.sel td{background:#EBF4FF}
+.sdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
+.dt th.ca{background:#E8F0FE;color:var(--accent);font-style:italic}
+.dt td.ca{background:#FAFCFF;color:var(--accent2);font-weight:600}
+
+/* ── Channel Table (matrix) ── */
+.cht-scroll{overflow:auto;max-height:60vh;border:1px solid var(--border);border-radius:var(--r);background:#fff}
+.cht-matrix{border-collapse:collapse;table-layout:fixed}
+.cht-matrix th,.cht-matrix td{width:28px;min-width:28px;max-width:28px;height:18px;padding:0 1px;border:1px solid #E0E0E0;font-size:7px;text-align:center;overflow:hidden;white-space:nowrap}
+.cht-matrix .rh{position:sticky;left:0;z-index:1;background:#E2E8F0;width:52px;min-width:52px;max-width:52px;font-weight:700;font-size:9px;text-align:right;padding-right:4px;color:var(--text2)}
+.cht-matrix thead th{position:sticky;top:0;z-index:2;background:#1A202C;color:#fff;height:22px;font-size:8px}
+.cht-matrix thead .rh{z-index:3}
+.cht-matrix .sub-c{box-shadow:inset 0 0 0 2px #E65100}
+.cht-matrix .slot-b{border-left:2px solid rgba(0,0,0,0.3) !important}
+
+/* ── Toolbar ── */
+.tb2{display:flex;align-items:center;gap:5px;margin-bottom:9px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:4px;padding:5px 11px;border:1px solid var(--border);border-radius:var(--r);background:var(--panel);color:var(--text2);font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.p{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.p:hover{background:var(--accent2);border-color:var(--accent2)}
+.btn.d{color:var(--err)}
+.btn.d:hover{border-color:var(--err);background:var(--err-bg)}
+.btn:disabled{opacity:.4;cursor:default;pointer-events:none}
+
+/* ── Channel Table (Result) ── */
+#cht-wrap{overflow:auto;max-height:calc(100vh - 200px);border:1px solid var(--border);border-radius:var(--r)}
+#cht{border-collapse:collapse;font-size:10px;white-space:nowrap}
+#cht th{background:#1E3A5F;color:#fff;border:1px solid #2D4E7A;padding:4px 6px;text-align:center;position:sticky;top:0;z-index:2}
+#cht th.rh{position:sticky;left:0;z-index:3;background:#1E3A5F}
+#cht td{border:1px solid #ddd;padding:3px 5px;text-align:center;min-width:38px;max-width:60px;overflow:hidden;text-overflow:ellipsis;cursor:default}
+#cht td.rh{background:#f0f4f8;font-weight:600;color:var(--text2);font-size:10px;position:sticky;left:0;z-index:1;border-right:2px solid var(--border)}
+
+/* ── Result Summary Cards ── */
+#rg{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:14px}
+.rc{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px}
+.rc .rl{font-size:10px;color:var(--text3);margin-bottom:3px}
+.rc .rv{font-size:16px;font-weight:700;color:var(--accent)}
+.rc .ru{font-size:10px;color:var(--text3);font-weight:400}
+
+/* ── Legend ── */
+.leg{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.li{display:flex;align-items:center;gap:3px;font-size:10px;color:var(--text2)}
+.ld{width:10px;height:10px;border-radius:2px;flex-shrink:0;border:1px solid rgba(0,0,0,.1)}
+
+/* ── Modal ── */
+.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center}
+.mo.open{display:flex}
+.mw{background:var(--panel);border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.28);width:460px;max-width:94vw;max-height:88vh;overflow-y:auto;animation:fi .15s ease}
+@keyframes fi{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+.mh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.mh h3{font-size:14px;font-weight:600}
+.mc2{background:none;border:none;font-size:18px;cursor:pointer;color:var(--text3);padding:0 3px;line-height:1}
+.mc2:hover{color:var(--text)}
+.mb{padding:14px 18px}
+.mf{padding:10px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:7px}
+
+/* ── Status Bar ── */
+#sb{background:#F8FAFC;border-top:1px solid var(--border);padding:0 14px;height:24px;display:flex;align-items:center;gap:14px;flex-shrink:0;font-size:11px;color:var(--text3)}
+#sb .sm{flex:1}
+.sp2{padding:2px 7px;border-radius:9px;font-size:10px;font-weight:600}
+.sp2.c1{background:#DCFCE7;color:var(--c1)} .sp2.c2{background:#FEF3C7;color:var(--c2)}
+
+.out-row{display:flex;gap:5px;align-items:center}
+.out-row input{flex:1}
+.sep{height:1px;background:var(--border);margin:5px 0}
+::-webkit-scrollbar{width:5px;height:5px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:#CBD5E0;border-radius:3px}
+.empty{text-align:center;padding:36px 20px;color:var(--text3)}
+.empty .em{font-size:28px;margin-bottom:7px}
+</style>
+</head>
+<body>
+
+<!-- ── Top Bar ── -->
+<div id="tb">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+  <h1>PCM Channel Config Generator &nbsp;|&nbsp; IRIG 106 Ch.4</h1>
+  <div class="sp"></div>
+  <button class="bt" onclick="loadSample()">Sample Load</button>
+  <button class="bt" onclick="doOpenConfig()">Open Config</button>
+  <button class="bt" onclick="doSaveConfig()">Save Config</button>
+  <button class="bt p" onclick="doGenerate()">Generate Channel Table</button>
+  <button class="bt" onclick="doExportExcel()">Excel</button>
+  <button class="bt" onclick="doExportCSV()">CSV</button>
+</div>
+
+<!-- ── Main ── -->
+<div id="main">
+
+<!-- LEFT PANEL -->
+<div id="left">
+
+<!-- Frame Parameters -->
+<div class="sec">
+  <div class="sh">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+    Frame Parameters
+    <span id="cbadge" class="c1">Class I</span>
+  </div>
+
+  <!-- Bitrate -->
+  <div class="fr">
+    <label>Bit Rate</label>
+    <div style="display:flex;gap:5px">
+      <select id="br-preset" style="width:130px;flex-shrink:0" onchange="applyBrPreset()">
+        <option value="256000">256 kbps</option>
+        <option value="512000">512 kbps</option>
+        <option value="1024000" selected>1 Mbps</option>
+        <option value="2048000">2 Mbps</option>
+        <option value="4096000">4 Mbps</option>
+        <option value="5000000">5 Mbps (C1 limit)</option>
+        <option value="8192000">8 Mbps</option>
+        <option value="10000000">10 Mbps</option>
+        <option value="16384000">16 Mbps</option>
+      </select>
+      <input type="number" id="br-custom" placeholder="direct input (bps)" style="flex:1" oninput="onBrCustom()" value="">
+    </div>
+  </div>
+  <div class="sep"></div>
+
+  <div class="g2">
+    <div class="fr"><label>Major Frame Rate (Hz)</label>
+      <input type="number" id="major_hz" value="1" min="0.001" step="any" oninput="onParamChange()">
+    </div>
+    <div class="fr"><label>Minor Frame Count <span style="color:var(--text3)">(Z, max 256)</span></label>
+      <input type="number" id="minor_count" value="50" min="1" max="256" oninput="onParamChange()">
+    </div>
+  </div>
+  <div class="fr" style="margin-bottom:7px">
+    <div style="display:flex;gap:8px;align-items:center">
+      <div style="flex:1;padding:6px 9px;background:#EFF6FF;border:1px solid #93C5FD;border-radius:var(--r)">
+        <span style="font-size:10px;color:#1D4ED8;font-weight:600">MFR</span>
+        <span style="font-size:13px;font-weight:700;color:#0F4C81;margin-left:4px" id="st-mfr">50</span>
+        <span style="font-size:10px;color:var(--text3)">Hz (Minor Frame Rate = Major × Z)</span>
+      </div>
+    </div>
+  </div>
+  <div class="g2">
+    <div class="fr"><label>Word Length (bit)</label>
+      <select id="bits_per_ch" onchange="onParamChange()">
+        <option value="8">8 bit</option>
+        <option value="10">10 bit</option>
+        <option value="12">12 bit</option>
+        <option value="16" selected>16 bit</option>
+        <option value="32">32 bit</option>
+      </select>
+    </div>
+    <div class="fr"><label>Words / Minor Frame <span style="color:#1D4ED8;font-weight:600">(auto)</span></label>
+      <input type="number" id="ch_per_minor" value="1280" min="4" readonly
+        style="background:#EFF6FF;color:#1D4ED8;font-weight:600;cursor:default">
+    </div>
+  </div>
+  <div class="g3">
+    <div class="fr"><label>SYNC Words</label>
+      <input type="number" id="sync_count" value="2" min="1" max="4" oninput="onFrameChange()">
+    </div>
+    <div class="fr"><label>SFID Words</label>
+      <input type="number" id="sfid_count" value="1" min="0" max="2" oninput="onFrameChange()">
+    </div>
+    <div class="fr"><label>Bit Repr.</label>
+      <select id="bit_repr">
+        <option value="NRZ-L" selected>NRZ-L</option>
+        <option value="NRZ-M">NRZ-M</option>
+        <option value="NRZ-S">NRZ-S</option>
+        <option value="Bi-L">Bi-L</option>
+        <option value="Bi-M">Bi-M</option>
+        <option value="Bi-S">Bi-S</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- SYNC Pattern -->
+  <div class="fr">
+    <label>SYNC Pattern <span style="color:var(--text3);font-weight:400">-- IRIG-106 Appendix C</span></label>
+    <select id="sync-preset" onchange="applySyncPreset()" style="margin-bottom:5px">
+      <optgroup label="-- 16 bit (Recommended) --">
+        <option value="0xFAF3"     data-bits="16">0xFAF3 (16 bit) - Most common</option>
+        <option value="0xEB90"     data-bits="16">0xEB90 (16 bit)</option>
+        <option value="0xFFF0"     data-bits="16">0xFFF0 (16 bit)</option>
+      </optgroup>
+      <optgroup label="-- 24 bit --">
+        <option value="0xFAF320"   data-bits="24">0xFAF320 (24 bit)</option>
+      </optgroup>
+      <optgroup label="-- 32 bit --">
+        <option value="0xFAF3EB90" data-bits="32">0xFAF3EB90 (32 bit)</option>
+      </optgroup>
+      <optgroup label="-- 2-word (16+16 = 32 bit) --">
+        <option value="0xFAF3,0x3400" data-bits="32" selected>0xFAF3, 0x3400 -- 2-word 32 bit</option>
+        <option value="0xEB90,0x1470" data-bits="32">0xEB90, 0x1470 -- 2-word 32 bit</option>
+      </optgroup>
+      <optgroup label="-- Custom --">
+        <option value="custom">Custom...</option>
+      </optgroup>
+    </select>
+    <input type="text" id="sync_pattern" value="0xFAF3, 0x3400" oninput="onSyncCustom()" placeholder="0xFAF3, 0x3400">
+    <div class="hint" id="sync-hint">32 bit total -- IRIG-106 range (16~33 bit)</div>
+  </div>
+  <div class="sep" style="margin:8px 0;border-top:1px solid var(--border)"></div>
+  <div class="fr">
+    <label>Data Distribution Mode</label>
+    <select id="dist_mode">
+      <option value="even" selected>균등 배치 (데이터 분산)</option>
+      <option value="compact">순차 배치 (데이터 우선)</option>
+    </select>
+    <div class="hint">균등: 빈 채널을 데이터 사이에 분산 / 순차: 데이터를 앞부터 배치</div>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="sec">
+  <div class="sh">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 3v18h18"/><path d="m9 9 3 3 3-3 3 3"/></svg>
+    Channel Status
+  </div>
+  <div id="sbox">
+    <div class="sc full">
+      <div class="lb">Bit Rate</div>
+      <div style="display:flex;align-items:baseline;gap:6px">
+        <span class="vl" id="st-br">1,024,000</span>
+        <span class="ut">bps</span>
+        <span class="ut" id="st-br2" style="font-size:12px;font-weight:600;color:var(--text2)">(1.024 Mbps)</span>
+      </div>
+    </div>
+    <div class="sc">
+      <div class="lb">Bits / Minor Frame</div>
+      <div class="vl" id="st-fb">20,480</div>
+      <div class="ut">bits (W x B)</div>
+    </div>
+    <div class="sc">
+      <div class="lb">PCM Class</div>
+      <div class="vl" id="st-cls" style="color:var(--c2)">Class II</div>
+    </div>
+    <div class="sc full">
+      <div class="lb">Channel Usage</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:2px">
+        <div><span class="vl" id="st-used" style="color:var(--text)">0</span><span class="ut"> / <span id="st-avail">1277</span> words</span></div>
+        <div><span id="st-rem" style="font-size:14px;font-weight:700;color:var(--ok)">1277</span><span class="ut"> remain (<span id="st-pct">100</span>%)</span></div>
+      </div>
+      <div class="pb-w"><div class="pb-b"><div class="pb-f ok" id="st-bar" style="width:0%"></div></div></div>
+    </div>
+    <div class="sc"><div class="lb">Max Supercom</div><div class="vl" id="st-sc">1x</div></div>
+    <div class="sc"><div class="lb">Slot Width</div><div class="vl" id="st-sw">--</div><div class="ut">words</div></div>
+    <div class="sc" id="st-sub-wrap" style="display:none"><div class="lb">Subcom Positions</div><div class="vl" id="st-sub">0</div><div class="ut" id="st-sub-info">params</div></div>
+  </div>
+</div>
+
+<!-- Validation -->
+<div class="sec">
+  <div class="sh">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m10.29 3.86-7 12A2 2 0 0 0 5 19h14a2 2 0 0 0 1.71-2.14l-7-12a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    IRIG-106 Validation
+  </div>
+  <div id="vmsg"></div>
+</div>
+
+<!-- Mini Preview -->
+<div class="sec">
+  <div class="sh">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    Channel Preview
+  </div>
+  <div id="mp"></div>
+</div>
+
+</div><!-- /left -->
+
+<!-- RIGHT PANEL -->
+<div id="right">
+<div id="tabs">
+  <div class="tab active" onclick="switchTab('sensors',this)">Analog Sensors <span class="cnt" id="tc-s">0</span></div>
+  <div class="tab" onclick="switchTab('digital',this)">Digital Data <span class="cnt" id="tc-d">0</span></div>
+  <div class="tab" onclick="switchTab('bit',this)">BIT Data <span class="cnt" id="tc-b">0</span></div>
+  <div class="tab" onclick="switchTab('result',this)">Result / Channel Table</div>
+</div>
+
+<div id="tc">
+
+<!-- ── Analog Sensors ── -->
+<div id="panel-sensors" class="tp active">
+  <div class="tb2">
+    <button class="btn p" onclick="openSensorModal()">+ Add Sensor</button>
+    <button class="btn" id="b-es" onclick="editSensor()" disabled>Edit</button>
+    <button class="btn d" id="b-ds" onclick="delSensor()" disabled>Delete</button>
+    <div style="flex:1"></div>
+    <button class="btn" id="b-us" onclick="moveSensor(-1)" disabled>Up</button>
+    <button class="btn" id="b-ns" onclick="moveSensor(1)" disabled>Down</button>
+  </div>
+  <table class="dt">
+    <thead><tr>
+      <th>#</th><th>Type</th><th>Parameter</th>
+      <th>Hz</th><th>EA</th>
+      <th class="ca">Comm</th><th class="ca">Words/Minor</th>
+      <th>Note</th>
+    </tr></thead>
+    <tbody id="s-body"></tbody>
+  </table>
+</div>
+
+<!-- ── Digital Data ── -->
+<div id="panel-digital" class="tp">
+  <div class="tb2">
+    <button class="btn p" onclick="openDigModal()">+ Add Digital</button>
+    <button class="btn" id="b-ed" onclick="editDig()" disabled>Edit</button>
+    <button class="btn d" id="b-dd" onclick="delDig()" disabled>Delete</button>
+  </div>
+  <table class="dt">
+    <thead><tr>
+      <th>Name</th><th>Data Type</th><th>Sample Hz</th>
+      <th>Bits</th><th class="ca">Comm</th><th class="ca">Words/Minor</th><th>Note</th>
+    </tr></thead>
+    <tbody id="d-body"></tbody>
+  </table>
+  <p style="margin-top:8px;font-size:11px;color:var(--text3)">
+    ARINC 429 (32 bit/word), MIL-STD-1553B, RS-422, Discrete signals etc.
+  </p>
+</div>
+
+<!-- ── BIT Data ── -->
+<div id="panel-bit" class="tp">
+  <div class="tb2">
+    <button class="btn p" onclick="openBitModal()">+ Add BIT</button>
+    <button class="btn" id="b-eb" onclick="editBit()" disabled>Edit</button>
+    <button class="btn d" id="b-db" onclick="delBit()" disabled>Delete</button>
+  </div>
+  <table class="dt">
+    <thead><tr><th>VL #</th><th>Size (bytes)</th><th class="ca">Words/Minor</th><th>Note</th></tr></thead>
+    <tbody id="b-body"></tbody>
+  </table>
+  <p style="margin-top:8px;font-size:11px;color:var(--text3)">
+    BIT(Built-In Test): MIL-STD-1553B bus data inserted via subcommutation.
+  </p>
+</div>
+
+<!-- ── Result / Channel Table ── -->
+<div id="panel-result" class="tp">
+  <div id="res-empty" class="empty">
+    <div class="em">PCM</div>
+    <p>Click "Generate Channel Table" to see the result.</p>
+    <p style="margin-top:8px"><button class="btn p" onclick="doGenerate()">Generate Channel Table</button></p>
+  </div>
+  <div id="res-content" style="display:none">
+    <div class="tb2">
+      <button class="btn p" onclick="doExportExcel()">Excel (.xlsx)</button>
+      <button class="btn" onclick="doExportCSV()">CSV (.csv)</button>
+      <button class="btn" onclick="doGenerate()">Regenerate</button>
+    </div>
+    <div id="rg"></div>
+    <div style="margin-bottom:10px">
+      <strong style="font-size:12px;color:var(--text2)">Channel Allocation Table</strong>
+      <span style="font-size:11px;color:var(--text3);margin-left:8px">Row = Minor Frame, Col = Channel #</span>
+    </div>
+    <div class="leg" id="leg"></div>
+    <div id="cht-wrap"><table id="cht"></table></div>
+  </div>
+</div>
+
+</div><!-- /tc -->
+</div><!-- /right -->
+</div><!-- /main -->
+
+<!-- Status Bar -->
+<div id="sb">
+  <span class="sm" id="s-msg">Ready</span>
+  <span id="sb-cls" class="sp2 c2">Class II</span>
+  <span>Bit Rate: <strong id="sb-br">--</strong></span>
+  <span style="color:var(--border)">|</span>
+  <span>IRIG-106-22 Ch.4</span>
+  <span style="color:var(--border)">|</span>
+  <span>&copy; 2025 단암시스템즈 (Danam Systems)</span>
+</div>
+
+<!-- MODALS -->
+
+<!-- Sensor Modal -->
+<div class="mo" id="sm">
+  <div class="mw">
+    <div class="mh"><h3 id="sm-title">Add Sensor</h3><button class="mc2" onclick="closeSensorModal()">x</button></div>
+    <div class="mb">
+      <div class="fr"><label>Sensor Type</label>
+        <select id="m-st" onchange="onStChange()">
+          <option value="RTD">RTD (PT100)</option>
+          <option value="STR3W">STR 3W (Strain Gauge 3-wire)</option>
+          <option value="STR4W">STR 4W (Strain Gauge 4-wire)</option>
+          <option value="PRS">PRS (Pressure)</option>
+          <option value="ACCICP">ACC(ICP) (Vibration ICP)</option>
+          <option value="ACCDC">ACC(DC) (Vibration DC)</option>
+          <option value="VOLTAGE">VOLTAGE</option>
+          <option value="TC">TC (Thermocouple)</option>
+          <option value="PIEZO">PIEZO (Piezoelectric)</option>
+          <option value="ACOUSTIC">ACOUSTIC</option>
+          <option value="ETC">Other</option>
+        </select>
+      </div>
+      <div class="fr"><label>Parameter Name</label><input type="text" id="m-pn" placeholder="e.g., MDAU_RTD_1"></div>
+      <div class="g2">
+        <div class="fr"><label>Sample Rate (Hz)</label>
+          <input type="number" id="m-hz" value="50" min="0.001" step="any" oninput="onMHz()">
+          <div class="hint" id="m-sc" style="color:var(--c1)">1x → 1 words/minor frame</div>
+        </div>
+        <div class="fr"><label>Channel Count (EA)</label><input type="number" id="m-ch" value="1" min="1" oninput="onMHz()"></div>
+      </div>
+      <div class="fr"><label>Note</label><input type="text" id="m-nt" placeholder="optional"></div>
+    </div>
+    <div class="mf"><button class="btn" onclick="closeSensorModal()">Cancel</button><button class="btn p" onclick="saveSensor()">Save</button></div>
+  </div>
+</div>
+
+<!-- Digital Modal -->
+<div class="mo" id="dm">
+  <div class="mw">
+    <div class="mh"><h3 id="dm-title">Add Digital Data</h3><button class="mc2" onclick="closeDigModal()">x</button></div>
+    <div class="mb">
+      <div class="fr"><label>Data Name</label><input type="text" id="d-name" placeholder="e.g., ARINC429_BUS1"></div>
+      <div class="g2">
+        <div class="fr"><label>Data Type</label>
+          <select id="d-type" onchange="onDtChange()">
+            <option value="DISCRETE">Discrete</option>
+            <option value="ARINC429">ARINC 429</option>
+            <option value="1553B">MIL-STD-1553B</option>
+            <option value="RS422">RS-422/485</option>
+            <option value="LVDT">LVDT/RVDT</option>
+            <option value="RESOLVER">Resolver</option>
+            <option value="ENCODER">Encoder</option>
+            <option value="DIGITAL">Digital Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="g2">
+        <div class="fr"><label>Sample Hz</label>
+          <input type="number" id="d-hz" value="50" min="0.001" step="any" oninput="calcDCh()">
+        </div>
+        <div class="fr"><label>Data Bits</label>
+          <input type="number" id="d-bits" value="16" min="1" oninput="calcDCh()">
+          <div class="hint" id="d-bh">PCM channels = ceil(bits / word_length)</div>
+        </div>
+      </div>
+      <div class="fr"><label>PCM CH (auto)</label>
+        <input type="text" id="d-ch" readonly style="background:#F0F4F8;color:var(--text3)">
+      </div>
+      <div class="fr"><label>Note</label><input type="text" id="d-nt" placeholder="optional"></div>
+    </div>
+    <div class="mf"><button class="btn" onclick="closeDigModal()">Cancel</button><button class="btn p" onclick="saveDig()">Save</button></div>
+  </div>
+</div>
+
+<!-- BIT Modal -->
+<div class="mo" id="bm">
+  <div class="mw">
+    <div class="mh"><h3 id="bm-title">Add BIT Data</h3><button class="mc2" onclick="closeBitModal()">x</button></div>
+    <div class="mb">
+      <div class="g2">
+        <div class="fr"><label>VL Number</label><input type="number" id="b-vl" value="1" min="1"></div>
+        <div class="fr"><label>Size (bytes)</label>
+          <input type="number" id="b-by" value="20" min="2" step="2" oninput="calcBCh()">
+        </div>
+      </div>
+      <div class="fr"><label>PCM CH (auto)</label>
+        <input type="text" id="b-ch" readonly style="background:#F0F4F8;color:var(--text3)">
+        <div class="hint">= size_bytes / (bits_per_word / 8)</div>
+      </div>
+      <div class="fr"><label>Note</label><input type="text" id="b-nt" placeholder="e.g., MIL-STD-1553B BUS A"></div>
+    </div>
+    <div class="mf"><button class="btn" onclick="closeBitModal()">Cancel</button><button class="btn p" onclick="saveBit()">Save</button></div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────
+//  Constants
+// ─────────────────────────────────────────────────
+const IRIG = { MAX_Z:256, MAX_BITS_C1:8192, MAX_WORDS_C1:1024, MAX_BPW_C1:16, MAX_BR_C1:5e6, MIN_BR:10, SYNC_MIN:16, SYNC_MAX:33 };
+
+const SMETA = {
+  RTD:     {label:'RTD',      color:'#FFD700', hz:50,  pfx:'RTD'},
+  STR3W:   {label:'STR 3W',   color:'#90EE90', hz:50,  pfx:'STR3W'},
+  STR4W:   {label:'STR 4W',   color:'#5DBD5D', hz:50,  pfx:'STR4W'},
+  PRS:     {label:'PRS',      color:'#6495ED', hz:50,  pfx:'PRS'},
+  ACCICP:  {label:'ACC(ICP)', color:'#FF8C00', hz:800, pfx:'ACC_ICP'},
+  ACCDC:   {label:'ACC(DC)',  color:'#FFB347', hz:50,  pfx:'ACC_DC'},
+  VOLTAGE: {label:'VOLTAGE',  color:'#87CEEB', hz:50,  pfx:'VOLT'},
+  TC:      {label:'TC',       color:'#FF69B4', hz:50,  pfx:'TC'},
+  PIEZO:   {label:'PIEZO',    color:'#9370DB', hz:800, pfx:'PIEZO'},
+  ACOUSTIC:{label:'ACOUSTIC', color:'#C0A0FF', hz:800, pfx:'ACOUSTIC'},
+  ETC:     {label:'Other',    color:'#C8C8C8', hz:50,  pfx:'SENSOR'},
+};
+const DMETA = {
+  DISCRETE:{label:'Discrete', color:'#B0C4DE', bits:1},
+  ARINC429:{label:'ARINC 429',color:'#85C1E9', bits:32},
+  '1553B':  {label:'1553B',   color:'#82E0AA', bits:16},
+  RS422:   {label:'RS-422',   color:'#F0B27A', bits:8},
+  LVDT:    {label:'LVDT',     color:'#D7BDE2', bits:16},
+  RESOLVER:{label:'Resolver', color:'#A9CCE3', bits:16},
+  ENCODER: {label:'Encoder',  color:'#A9DFBF', bits:16},
+  DIGITAL: {label:'Digital',  color:'#AED6F1', bits:16},
+};
+
+// ─────────────────────────────────────────────────
+//  State
+// ─────────────────────────────────────────────────
+let sensors=[], digital=[], bitData=[];
+let selS=-1, selD=-1, selB=-1;
+let editSIdx=-1, editDIdx=-1, editBIdx=-1;
+let lastResult = null; // store last generation result
+let lockedBitrate = 0; // 0 = unlocked, >0 = locked to this value
+
+// ─────────────────────────────────────────────────
+//  pywebview API check
+// ─────────────────────────────────────────────────
+function hasPyApi(){
+  return typeof pywebview !== 'undefined' && pywebview.api;
+}
+
+// ─────────────────────────────────────────────────
+//  Frame helpers
+// ─────────────────────────────────────────────────
+function F(){
+  const mhz = parseFloat(document.getElementById('major_hz').value)||50;
+  const Z   = parseInt(document.getElementById('minor_count').value)||1;
+  return {
+    mhz,  // major frame rate (Hz)
+    Z,
+    mfr: mhz*Z,  // minor frame rate (Hz) = major * Z
+    W:   parseInt(document.getElementById('ch_per_minor').value)||1280,
+    B:   parseInt(document.getElementById('bits_per_ch').value)||16,
+    sc:  parseInt(document.getElementById('sync_count').value)||2,
+    sf:  parseInt(document.getElementById('sfid_count').value)||1,
+    sp:  document.getElementById('sync_pattern').value,
+    br:  document.getElementById('bit_repr').value,
+  };
+}
+function bitrate(f){ return f.W*f.B*f.Z*f.mhz; }
+function syncBits(f){
+  const parts=f.sp.split(',').map(s=>s.trim()).filter(Boolean);
+  return parts.length*f.B;
+}
+function pcmClass(f){
+  if(f.W*f.B>IRIG.MAX_BITS_C1||f.W>IRIG.MAX_WORDS_C1||f.B>IRIG.MAX_BPW_C1||bitrate(f)>IRIG.MAX_BR_C1) return 'Class II';
+  return 'Class I';
+}
+// supercom per minor frame = sensor_hz / minor_frame_rate
+function supercom(hz, f){ return Math.max(1, Math.round(hz / f.mfr)); }
+// subcom ratio = MFR / sensor_hz (only when hz < MFR and Z > 1)
+function subcomRatio(hz, f){ return (hz < f.mfr && f.Z > 1) ? Math.max(1, Math.round(f.mfr / hz)) : 0; }
+function isSubcom(hz, f){ return hz < f.mfr && f.Z > 1; }
+function maxSupercom(f){
+  return sensors.reduce((m,s)=>{
+    if(isSubcom(s.hz,f)) return m;
+    const sc=supercom(s.hz,f); return sc>m?sc:m;
+  },1);
+}
+// Channel usage per minor frame
+// supercom/normal: ch * supercom_ratio words per minor
+// subcom: params share word positions → ceil(total_subcom_slots / Z) positions
+function calcUsed(f){
+  let su=0, du=0, subSlots=0;
+  sensors.forEach(s=>{
+    if(isSubcom(s.hz,f)){
+      const ratio=subcomRatio(s.hz,f);
+      subSlots += s.ch * (f.Z / ratio);
+    } else {
+      su += s.ch * supercom(s.hz,f);
+    }
+  });
+  digital.forEach(d=>{
+    const ch=Math.ceil(d.bits/f.B);
+    if(isSubcom(d.hz,f)){
+      const ratio=subcomRatio(d.hz,f);
+      subSlots += ch * (f.Z / ratio);
+    } else {
+      du += ch * supercom(d.hz,f);
+    }
+  });
+  const bu=bitData.reduce((t,b)=>t+Math.ceil(b.bytes/(f.B/8)),0);
+  const subPos = f.Z > 1 ? Math.ceil(subSlots / f.Z) : 0;
+  return {su,du,bu,subPos,subSlots,total:su+du+bu+subPos};
+}
+
+// ─────────────────────────────────────────────────
+//  Build config object for Python API
+// ─────────────────────────────────────────────────
+function buildConfig(){
+  const f=F();
+  const cfg = {
+    frame_hz: f.mhz,
+    minor_count: f.Z,
+    words_per_minor: f.W,
+    bits_per_word: f.B,
+    sync_count: f.sc,
+    sfid_count: f.sf,
+    sync_pattern: f.sp,
+    bit_repr: f.br,
+    sensors: sensors.map(s=>({type:s.type,name:s.name,hz:s.hz,ch:s.ch,dau:s.dau||'MDAU',note:s.note||''})),
+    digital: digital.map(d=>({type:d.type,name:d.name,hz:d.hz,bits:d.bits,dau:d.dau,note:d.note})),
+    bit_data: bitData.map(b=>({vl:b.vl,bytes:b.bytes,note:b.note})),
+  };
+  if(lockedBitrate>0) cfg.locked_bitrate = lockedBitrate;
+  return cfg;
+}
+
+// ─────────────────────────────────────────────────
+//  Bitrate & W Auto-Calculation
+// ─────────────────────────────────────────────────
+function getBitrate(){
+  const custom=parseInt(document.getElementById('br-custom').value)||0;
+  if(custom>=10) return custom;
+  return parseInt(document.getElementById('br-preset').value)||1024000;
+}
+function recalcW(){
+  // W = Bitrate / (B * Z * Major_Hz)
+  const br=getBitrate();
+  const B=parseInt(document.getElementById('bits_per_ch').value)||16;
+  const Z=parseInt(document.getElementById('minor_count').value)||1;
+  const hz=parseFloat(document.getElementById('major_hz').value)||1;
+  const denom=B*Z*hz;
+  if(denom<=0) return;
+  const newW=Math.max(4, Math.round(br/denom));
+  document.getElementById('ch_per_minor').value=newW;
+  // Update MFR display
+  document.getElementById('st-mfr').textContent=(hz*Z).toLocaleString();
+  lockedBitrate = br;
+  onFrameChange();
+}
+function applyBrPreset(){
+  document.getElementById('br-custom').value='';
+  recalcW();
+}
+function onBrCustom(){
+  const v=parseInt(document.getElementById('br-custom').value)||0;
+  if(v<10) return;
+  document.getElementById('br-preset').value='';
+  recalcW();
+}
+// Called when Major Hz, Z, or Word Length changes
+function onParamChange(){
+  recalcW();
+}
+
+// ─────────────────────────────────────────────────
+//  Sync Pattern
+// ─────────────────────────────────────────────────
+function applySyncPreset(){
+  const sel=document.getElementById('sync-preset');
+  const v=sel.value;
+  if(v==='custom') return;
+  document.getElementById('sync_pattern').value=v;
+  onFrameChange();
+}
+function onSyncCustom(){
+  document.getElementById('sync-preset').value='custom';
+  onFrameChange();
+}
+
+// ─────────────────────────────────────────────────
+//  Main change handler
+// ─────────────────────────────────────────────────
+function onFrameChange(){
+  const f=F();
+  const br=bitrate(f);
+  const fb=f.W*f.B;
+  const dataW=f.W-f.sc-f.sf;  // data words per minor frame
+  const avail=dataW;           // available per minor frame (used & avail both per-minor)
+  const used=calcUsed(f);      // per minor frame
+  const maxSc=maxSupercom(f);
+  const slotW=maxSc>1?Math.floor(f.W/maxSc):'--';
+  const sb=syncBits(f);
+  const cls=pcmClass(f);
+  const pct=avail>0?used.total/avail*100:0;
+  const rem=avail-used.total;
+
+  // Class badge
+  const cb=document.getElementById('cbadge');
+  cb.textContent=cls; cb.className=cls==='Class I'?'c1':'c2';
+
+  // Bitrate
+  document.getElementById('st-br').textContent=br.toLocaleString();
+  document.getElementById('st-br2').textContent=`(${(br/1e6).toFixed(3)} Mbps)`;
+  // Update MFR display
+  document.getElementById('st-mfr').textContent=f.mfr.toLocaleString();
+
+  // Stats
+  document.getElementById('st-fb').textContent=fb.toLocaleString();
+  document.getElementById('st-cls').textContent=cls;
+  document.getElementById('st-cls').style.color=cls==='Class I'?'var(--c1)':'var(--c2)';
+  document.getElementById('st-avail').textContent=avail.toLocaleString();
+  document.getElementById('st-used').textContent=used.total.toLocaleString();
+  const re=document.getElementById('st-rem');
+  re.textContent=rem.toLocaleString();
+  re.style.color=rem<0?'var(--err)':pct>90?'var(--warn)':'var(--ok)';
+  document.getElementById('st-pct').textContent=(100-Math.min(100,pct)).toFixed(1);
+  const bar=document.getElementById('st-bar');
+  bar.style.width=Math.min(100,pct)+'%';
+  bar.className='pb-f '+(pct>100?'er':pct>90?'warn':'ok');
+  document.getElementById('st-sc').textContent=maxSc+'x';
+  document.getElementById('st-sw').textContent=slotW;
+
+  // Subcom stats
+  const subWrap=document.getElementById('st-sub-wrap');
+  if(used.subPos>0){
+    subWrap.style.display='';
+    document.getElementById('st-sub').textContent=used.subPos;
+    document.getElementById('st-sub-info').textContent=`${Math.round(used.subSlots)} param-slots shared`;
+  } else {
+    subWrap.style.display='none';
+  }
+
+  // Sync hint
+  const sok=sb>=IRIG.SYNC_MIN&&sb<=IRIG.SYNC_MAX;
+  const sh=document.getElementById('sync-hint');
+  sh.textContent=`${sb} bit total -- IRIG-106 range (16~33 bit) ${sok?'OK':'FAIL'}`;
+  sh.className=sok?'hint':'hint er';
+  document.getElementById('sync_pattern').className=sok?'':'er';
+
+  // Status bar
+  document.getElementById('sb-br').textContent=br.toLocaleString()+' bps';
+  const sbc=document.getElementById('sb-cls');
+  sbc.textContent=cls; sbc.className='sp2 '+(cls==='Class I'?'c1':'c2');
+
+  validate(f,cls,sb,rem,avail,used,maxSc,slotW);
+  renderMini(f,used,maxSc);
+}
+
+// ─────────────────────────────────────────────────
+//  Validation
+// ─────────────────────────────────────────────────
+function validate(f,cls,sb,rem,avail,used,maxSc,slotW){
+  const msgs=[];
+  if(f.Z>IRIG.MAX_Z) msgs.push({t:'er',m:`Minor Frame count ${f.Z} > 256 (IRIG-106 sec.4.2)`});
+  if(sb<IRIG.SYNC_MIN||sb>IRIG.SYNC_MAX) msgs.push({t:'er',m:`SYNC pattern ${sb} bit -- allowed 16~33 bit (sec.4.3)`});
+  if(bitrate(f)<IRIG.MIN_BR) msgs.push({t:'er',m:`Bit rate < 10 bps (sec.4.8)`});
+  if(rem<0) msgs.push({t:'er',m:`Channel overflow: required ${used.total} > available ${avail}`});
+  if(cls==='Class II'){
+    if(f.W*f.B>IRIG.MAX_BITS_C1) msgs.push({t:'warn',m:`Frame bits ${(f.W*f.B).toLocaleString()} > 8,192 -> <b>Class II</b> (sec.4.2)`});
+    if(f.W>IRIG.MAX_WORDS_C1) msgs.push({t:'warn',m:`Word count ${f.W.toLocaleString()} > 1,024 -> <b>Class II</b> (sec.4.2)`});
+    if(f.B>IRIG.MAX_BPW_C1) msgs.push({t:'warn',m:`Word length ${f.B} bit > 16 -> <b>Class II</b> (sec.4.2)`});
+    if(bitrate(f)>IRIG.MAX_BR_C1) msgs.push({t:'warn',m:`Bit rate ${(bitrate(f)/1e6).toFixed(2)} Mbps > 5 Mbps -> <b>Class II</b> (sec.4.8)`});
+  }
+  sensors.forEach(s=>{
+    const sc=s.hz/f.mfr; // use minor frame rate
+    if(sc>1&&Math.abs(sc-Math.round(sc))>0.001)
+      msgs.push({t:'er',m:`[${s.name}] Supercom ratio ${sc.toFixed(3)} -- not integer (sec.2.5)`});
+  });
+  const hasSub=sensors.some(s=>s.hz<f.mfr);
+  if(hasSub&&f.sf===0&&f.Z>1) msgs.push({t:'warn',m:'Subcom parameters exist -> SFID recommended (sec.2.4)'});
+  if(maxSc>1){
+    const sw=f.W/maxSc;
+    if(sw!==Math.floor(sw)) msgs.push({t:'warn',m:`Slot width ${sw.toFixed(2)} -- W(${f.W})/SupercomMax(${maxSc}) not integer (sec.2.5)`});
+  }
+  if(msgs.length===0) msgs.push({t:'info',m:'IRIG-106 validation passed'});
+  document.getElementById('vmsg').innerHTML=msgs.map(m=>
+    `<div class="vm ${m.t}"><span class="ic">${m.t==='er'?'X':m.t==='warn'?'!':'OK'}</span><span>${m.m}</span></div>`
+  ).join('');
+}
+
+// ─────────────────────────────────────────────────
+//  Mini Preview
+// ─────────────────────────────────────────────────
+function renderMini(f,used,maxSc){
+  const W=Math.min(f.W,80);
+  const row=buildRow(f,0,maxSc).slice(0,W);
+  const sw=maxSc>1?Math.floor(f.W/maxSc):0;
+  const wrap=document.getElementById('mp');
+  wrap.innerHTML=row.map((c,i)=>{
+    const slotGap=sw>0&&i>0&&i%sw===0?'margin-left:3px;':'';
+    const subBorder=c.subcom?'border:1px solid #E65100;':'';
+    return `<div class="mc" style="background:${c.color};${slotGap}${subBorder}" title="${c.label}"></div>`;
+  }).join('');
+}
+
+// Returns which slot indices (out of numSlots) a supercom param with ratio sc should appear in
+function superSlots(sc, numSlots){
+  if(sc>=numSlots) return Array.from({length:numSlots},(_,i)=>i);
+  const idx=[];
+  for(let i=0;i<sc;i++) idx.push(Math.round(i*numSlots/sc));
+  return idx;
+}
+
+function getDistMode(){ return document.getElementById('dist_mode').value; }
+
+function buildRow(f,rowIdx,maxSc){
+  const mode=getDistMode(); // 'even' or 'compact'
+  const W=f.W;
+  const slotW=maxSc>1?Math.floor(W/maxSc):W; // e.g., 1280/16=80
+  const frame=new Array(W).fill(null); // entire frame position array
+
+  // 1. SYNC + SFID at start of frame (slot 0 only)
+  let cur=0;
+  for(let i=0;i<f.sc;i++) frame[cur++]={label:`SYNC[${i+1}]`,color:'#FF4444',subcom:false};
+  for(let i=0;i<f.sf;i++) frame[cur++]={label:'SFID',color:'#CC0000',subcom:false};
+
+  // 2. Categorize sensors
+  const superS=[], normS=[];
+  sensors.forEach(s=>{
+    if(f.Z>1 && isSubcom(s.hz,f)) return;
+    const sc_=supercom(s.hz,f);
+    sc_>1 ? superS.push({s,sc:sc_}) : normS.push(s);
+  });
+  const superD=[], normD=[];
+  digital.forEach(d=>{
+    if(f.Z>1 && isSubcom(d.hz,f)) return;
+    const sc_=supercom(d.hz,f);
+    sc_>1 ? superD.push({d,sc:sc_}) : normD.push(d);
+  });
+
+  // 3. Place supercom: first copy in slot 0, then replicate at exact slotW intervals
+  //    ACC_1[1] at pos P → also at P+80, P+160, ..., P+80*15 (for 16x)
+  //    4x supercom → spacing = W/4 = 320 → at P, P+320, P+640, P+960
+  superS.forEach(({s,sc:sc_})=>{
+    const m=SMETA[s.type]||SMETA.ETC;
+    const spacing=Math.floor(W/sc_); // distance between same channel copies
+    for(let i=0;i<s.ch;i++){
+      // Find next available position in slot 0 for first copy
+      while(cur<slotW&&frame[cur]!==null) cur++;
+      if(cur>=slotW) return;
+      // Place first copy and replicate at exact spacing
+      for(let k=0;k<sc_;k++){
+        const pos=cur+k*spacing;
+        if(pos<W) frame[pos]={label:`${s.name}[${i+1}]`,color:m.color,subcom:false};
+      }
+      cur++;
+    }
+  });
+  superD.forEach(({d,sc:sc_})=>{
+    const m=DMETA[d.type]||DMETA.DIGITAL;
+    const ch=Math.ceil(d.bits/f.B);
+    const spacing=Math.floor(W/sc_);
+    for(let i=0;i<ch;i++){
+      while(cur<slotW&&frame[cur]!==null) cur++;
+      if(cur>=slotW) return;
+      for(let k=0;k<sc_;k++){
+        const pos=cur+k*spacing;
+        if(pos<W) frame[pos]={label:d.name,color:m.color,subcom:false};
+      }
+      cur++;
+    }
+  });
+
+  // 4. Build normal + BIT items
+  const normItems=[];
+  normS.forEach(s=>{
+    const m=SMETA[s.type]||SMETA.ETC;
+    for(let i=0;i<s.ch;i++) normItems.push({label:`${s.name}[${i+1}]`,color:m.color,subcom:false});
+  });
+  normD.forEach(d=>{
+    const m=DMETA[d.type]||DMETA.DIGITAL;
+    const ch=Math.ceil(d.bits/f.B);
+    for(let i=0;i<ch;i++) normItems.push({label:d.name,color:m.color,subcom:false});
+  });
+  bitData.forEach(b=>{
+    const ch=Math.ceil(b.bytes/(f.B/8));
+    for(let i=0;i<ch;i++) normItems.push({label:`VL${b.vl}`,color:'#A0A0A0',subcom:false});
+  });
+
+  // 5. Build subcom items (Z>1 only)
+  const subItems=[];
+  if(f.Z>1){
+    const subParams=[];
+    sensors.filter(s=>isSubcom(s.hz,f)).forEach(s=>{
+      const m=SMETA[s.type]||SMETA.ETC; const ratio=subcomRatio(s.hz,f);
+      for(let i=0;i<s.ch;i++) subParams.push({name:`${s.name}[${i+1}]`,color:m.color,ratio});
+    });
+    digital.filter(d=>isSubcom(d.hz,f)).forEach(d=>{
+      const m=DMETA[d.type]||DMETA.DIGITAL; const ch=Math.ceil(d.bits/f.B);
+      const ratio=subcomRatio(d.hz,f);
+      for(let i=0;i<ch;i++) subParams.push({name:d.name,color:m.color,ratio});
+    });
+    const positions=[];
+    subParams.forEach(p=>{
+      let placed=false;
+      for(const pos of positions){
+        for(let off=0;off<p.ratio;off++){
+          const frs=[]; for(let fi=off;fi<f.Z;fi+=p.ratio) frs.push(fi);
+          if(frs.every(fi=>!pos.slots[fi])){
+            frs.forEach(fi=>pos.slots[fi]=p); placed=true; break;
+          }
+        }
+        if(placed) break;
+      }
+      if(!placed){
+        const pos={slots:{}};
+        for(let off=0;off<p.ratio;off++){
+          const frs=[]; for(let fi=off;fi<f.Z;fi+=p.ratio) frs.push(fi);
+          if(frs.every(fi=>!pos.slots[fi])){
+            frs.forEach(fi=>pos.slots[fi]=p); break;
+          }
+        }
+        positions.push(pos);
+      }
+    });
+    positions.forEach(pos=>{
+      const p=pos.slots[rowIdx];
+      if(p) subItems.push({label:p.name,color:p.color,subcom:true});
+      else subItems.push({label:'RSVD',color:'#F5F5F5',subcom:false});
+    });
+  }
+
+  // 6. Place normal + subcom based on distribution mode
+  const allItems=[...normItems,...subItems];
+  const availIdx=[];
+  frame.forEach((d,i)=>{ if(d===null) availIdx.push(i); });
+
+  if(mode==='even' && allItems.length>0 && availIdx.length>0){
+    // Even: spread data evenly among all available positions (RSVD fills gaps)
+    const spacing=availIdx.length/allItems.length;
+    allItems.forEach((item,i)=>{
+      const ai=Math.min(Math.round(i*spacing), availIdx.length-1);
+      frame[availIdx[ai]]=item;
+    });
+  } else {
+    // Compact: pack data from first available position
+    let di=0;
+    for(let pos=0;pos<W&&di<allItems.length;pos++){
+      if(frame[pos]===null) frame[pos]=allItems[di++];
+    }
+  }
+
+  // 7. Fill remaining with RSVD and return
+  return frame.map(d=>d||{label:'RSVD',color:'#F5F5F5',subcom:false});
+}
+
+// ─────────────────────────────────────────────────
+//  Channel Table Rendering
+// ─────────────────────────────────────────────────
+function renderChTable(frames, stats){
+  const W=stats.words_per_minor;
+  const Z=frames.length;
+  const maxSc=stats.max_supercom||1;
+  const slotW=maxSc>1?Math.floor(W/maxSc):0;
+  // Pre-compute slot boundary positions (based on W, e.g., 1280/16=80)
+  const slotSet=new Set();
+  if(slotW>0) for(let s=1;s<maxSc;s++) slotSet.add(s*slotW);
+
+  const parts=[];
+  parts.push('<div class="cht-scroll"><table class="cht-matrix">');
+
+  // Column headers: all word numbers
+  parts.push('<thead><tr><th class="rh">SFID \\ Word</th>');
+  for(let wi=0;wi<W;wi++){
+    const sb=slotSet.has(wi)?' slot-b':'';
+    parts.push(`<th class="${sb}">${wi+1}</th>`);
+  }
+  parts.push('</tr></thead><tbody>');
+
+  // Data rows: one per minor frame
+  for(let fi=0;fi<Z;fi++){
+    const cells=frames[fi].cells||[];
+    parts.push(`<tr><td class="rh">${Z>1?fi:'MF'}</td>`);
+    for(let wi=0;wi<W;wi++){
+      const cell=wi<cells.length?cells[wi]:{name:'',color:'#F5F5F5'};
+      const cls=(cell.subcom?'sub-c':'')+(slotSet.has(wi)?' slot-b':'');
+      const tc=isTextDark(cell.color)?'#222':'#fff';
+      const name=cell.name&&cell.name!=='RSVD'?shortLabel(cell.name):'';
+      const ttl=cell.name&&cell.name!=='RSVD'?` title="W${wi+1}: ${cell.name}"`:'';
+      parts.push(`<td class="${cls}" style="background:${cell.color};color:${tc}"${ttl}>${name}</td>`);
+    }
+    parts.push('</tr>');
+  }
+  parts.push('</tbody></table></div>');
+  document.getElementById('cht').innerHTML=parts.join('');
+}
+
+function isTextDark(hex){
+  if(!hex || hex.length < 7) return true;
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return (r*299+g*587+b*114)/1000>160;
+}
+function shortLabel(l){
+  if(!l||l==='RSVD') return '';
+  if(l.length>8) return l.slice(0,7)+'..';
+  return l;
+}
+
+function renderLegend(){
+  const items=[
+    {label:'SYNC',color:'#FF4444'},{label:'SFID',color:'#CC0000'},
+    ...Object.entries(SMETA).map(([,v])=>({label:v.label,color:v.color})),
+    ...Object.entries(DMETA).map(([,v])=>({label:v.label,color:v.color})),
+    {label:'BIT/VL',color:'#A0A0A0'},{label:'Reserved',color:'#F5F5F5'},
+  ];
+  const seen=new Set(); const uniq=items.filter(i=>!seen.has(i.color)&&seen.add(i.color));
+  let html=uniq.map(i=>
+    `<div class="li"><div class="ld" style="background:${i.color}"></div>${i.label}</div>`
+  ).join('');
+  // Subcom indicator
+  html+=`<div class="li"><div class="ld" style="background:#FFE0B2;box-shadow:inset 0 0 0 2px #E65100"></div>Subcom</div>`;
+  // Slot separator indicator
+  html+=`<div class="li" style="color:var(--text3);font-size:10px;margin-left:8px">│ = Supercom slot boundary</div>`;
+  document.getElementById('leg').innerHTML=html;
+}
+
+// ─────────────────────────────────────────────────
+//  Tab Switch
+// ─────────────────────────────────────────────────
+function switchTab(id,el){
+  document.querySelectorAll('.tp').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('panel-'+id).classList.add('active');
+  el.classList.add('active');
+}
+
+// ─────────────────────────────────────────────────
+//  Sensor CRUD
+// ─────────────────────────────────────────────────
+function renderSensors(){
+  const f=F();
+  document.getElementById('s-body').innerHTML=sensors.map((s,i)=>{
+    const isSub=isSubcom(s.hz,f);
+    const sc=supercom(s.hz,f);
+    const subR=subcomRatio(s.hz,f);
+    let commLabel, wordsPerMinor;
+    if(isSub){
+      // Subcom: sensor sampled slower than MFR → shared word position across Z frames
+      commLabel=`<span style="color:var(--warn);font-weight:600">Sub 1/${subR}</span>`;
+      wordsPerMinor=`${s.ch} <span style="font-size:10px;color:var(--warn)">(1/${subR} shared)</span>`;
+    } else if(sc>1){
+      // Supercom: sensor sampled faster than MFR → multiple words per minor frame
+      commLabel=`<span style="color:var(--c1);font-weight:600">Super ${sc}x</span>`;
+      wordsPerMinor=`<strong>${s.ch*sc}</strong> <span style="font-size:10px;color:var(--text3)">(${s.ch}×${sc})</span>`;
+    } else {
+      // Normal: 1x per minor frame
+      commLabel='1x';
+      wordsPerMinor=`<strong>${s.ch}</strong>`;
+    }
+    const m=SMETA[s.type]||SMETA.ETC;
+    return `<tr class="${selS===i?'sel':''}" onclick="selSensor(${i})" ondblclick="editSensorRow(${i})">
+      <td>${i+1}</td>
+      <td><span class="sdot" style="background:${m.color}"></span>${m.label}</td>
+      <td>${s.name}</td><td>${s.hz}</td><td>${s.ch}</td>
+      <td class="ca">${commLabel}</td>
+      <td class="ca">${wordsPerMinor}</td>
+      <td style="color:var(--text3)">${s.note||''}</td>
+    </tr>`;
+  }).join('')||`<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text3)">Add sensors to begin</td></tr>`;
+  document.getElementById('tc-s').textContent=sensors.length;
+  updSBtns();
+  onFrameChange();
+}
+function selSensor(i){selS=i;renderSensors();}
+function updSBtns(){
+  const h=selS>=0&&selS<sensors.length;
+  document.getElementById('b-es').disabled=!h;
+  document.getElementById('b-ds').disabled=!h;
+  document.getElementById('b-us').disabled=!h||selS===0;
+  document.getElementById('b-ns').disabled=!h||selS===sensors.length-1;
+}
+function moveSensor(d){
+  const i=selS; if(i+d<0||i+d>=sensors.length) return;
+  [sensors[i],sensors[i+d]]=[sensors[i+d],sensors[i]]; selS=i+d; renderSensors();
+}
+function delSensor(){if(selS<0) return; sensors.splice(selS,1); selS=Math.min(selS,sensors.length-1); renderSensors();}
+function editSensor(){editSensorRow(selS);}
+function editSensorRow(i){
+  editSIdx=i; const s=sensors[i];
+  document.getElementById('sm-title').textContent='Edit Sensor';
+  document.getElementById('m-st').value=s.type;
+  document.getElementById('m-pn').value=s.name;
+  document.getElementById('m-hz').value=s.hz;
+  document.getElementById('m-ch').value=s.ch;
+  document.getElementById('m-nt').value=s.note||'';
+  onMHz(); document.getElementById('sm').classList.add('open');
+}
+function openSensorModal(){
+  editSIdx=-1;
+  document.getElementById('sm-title').textContent='Add Sensor';
+  document.getElementById('m-st').value='RTD';
+  document.getElementById('m-pn').value='';
+  document.getElementById('m-hz').value=50;
+  document.getElementById('m-ch').value=1;
+  document.getElementById('m-nt').value='';
+  onStChange(); document.getElementById('sm').classList.add('open');
+}
+function closeSensorModal(){document.getElementById('sm').classList.remove('open');}
+function onStChange(){
+  const m=SMETA[document.getElementById('m-st').value]||SMETA.ETC;
+  if(!document.getElementById('m-pn').value) document.getElementById('m-pn').value=m.pfx+'_1';
+  document.getElementById('m-hz').value=m.hz; onMHz();
+}
+function onMHz(){
+  const hz=parseFloat(document.getElementById('m-hz').value)||50;
+  const mhz=parseFloat(document.getElementById('major_hz').value)||50;
+  const Z=parseInt(document.getElementById('minor_count').value)||1;
+  const ch=parseInt(document.getElementById('m-ch').value)||1;
+  const mfr=mhz*Z;  // minor frame rate
+  const sc=hz/mfr;
+  const el=document.getElementById('m-sc');
+  let txt='';
+  if(sc>=1){
+    const ratio=Math.max(1,Math.round(sc));
+    if(ratio>1){
+      txt=`Super ${ratio}x → ${ch*ratio} words/minor frame`;
+      if(sc%1!==0) txt+=` (${sc.toFixed(2)} rounded)`;
+    } else {
+      txt=`1x → ${ch} words/minor frame`;
+    }
+    el.style.color='var(--c1)';
+  } else {
+    const ratio=Math.round(mfr/hz);
+    txt=`Sub 1/${ratio} → ${ch} words (shared, ${ratio}frame마다 1회)`;
+    if(Z<=1) txt+=' ⚠ Z>1 필요';
+    el.style.color='var(--warn)';
+  }
+  txt+=` [MFR=${mfr} Hz]`;
+  el.textContent=txt;
+}
+function saveSensor(){
+  const s={type:document.getElementById('m-st').value,name:document.getElementById('m-pn').value||'SENSOR',
+    hz:parseFloat(document.getElementById('m-hz').value)||50,ch:parseInt(document.getElementById('m-ch').value)||1,
+    note:document.getElementById('m-nt').value};
+  if(editSIdx>=0) sensors[editSIdx]=s; else sensors.push(s);
+  closeSensorModal(); renderSensors();
+}
+
+// ─────────────────────────────────────────────────
+//  Digital CRUD
+// ─────────────────────────────────────────────────
+function renderDigital(){
+  const f=F();
+  document.getElementById('d-body').innerHTML=digital.map((d,i)=>{
+    const m=DMETA[d.type]||DMETA.DIGITAL;
+    const wordsPerSample=Math.ceil(d.bits/f.B);
+    const isSub=isSubcom(d.hz,f);
+    const sc=supercom(d.hz,f);
+    const subR=subcomRatio(d.hz,f);
+    let commLabel, wordsMinor;
+    if(isSub){
+      commLabel=`<span style="color:var(--warn);font-weight:600">Sub 1/${subR}</span>`;
+      wordsMinor=`${wordsPerSample} <span style="font-size:10px;color:var(--warn)">(1/${subR} shared)</span>`;
+    } else if(sc>1){
+      commLabel=`<span style="color:var(--c1);font-weight:600">Super ${sc}x</span>`;
+      wordsMinor=`<strong>${wordsPerSample*sc}</strong> <span style="font-size:10px;color:var(--text3)">(${wordsPerSample}×${sc})</span>`;
+    } else {
+      commLabel='1x';
+      wordsMinor=`<strong>${wordsPerSample}</strong>`;
+    }
+    return `<tr class="${selD===i?'sel':''}" onclick="selDig(${i})" ondblclick="editDigRow(${i})">
+      <td>${d.name}</td>
+      <td><span class="sdot" style="background:${m.color}"></span>${m.label}</td>
+      <td>${d.hz}</td><td>${d.bits}</td>
+      <td class="ca">${commLabel}</td>
+      <td class="ca">${wordsMinor}</td>
+      <td style="color:var(--text3)">${d.note||''}</td>
+    </tr>`;
+  }).join('')||`<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text3)">Add digital data</td></tr>`;
+  document.getElementById('tc-d').textContent=digital.length;
+  document.getElementById('b-ed').disabled=selD<0;
+  document.getElementById('b-dd').disabled=selD<0;
+  onFrameChange();
+}
+function selDig(i){selD=i;renderDigital();}
+function delDig(){if(selD<0) return; digital.splice(selD,1); selD=Math.min(selD,digital.length-1); renderDigital();}
+function editDig(){editDigRow(selD);}
+function editDigRow(i){
+  editDIdx=i; const d=digital[i];
+  document.getElementById('dm-title').textContent='Edit Digital Data';
+  document.getElementById('d-name').value=d.name;
+  document.getElementById('d-type').value=d.type;
+  document.getElementById('d-hz').value=d.hz;
+  document.getElementById('d-bits').value=d.bits;
+  document.getElementById('d-nt').value=d.note;
+  calcDCh(); document.getElementById('dm').classList.add('open');
+}
+function openDigModal(){
+  editDIdx=-1;
+  document.getElementById('dm-title').textContent='Add Digital Data';
+  document.getElementById('d-name').value='';
+  document.getElementById('d-type').value='DISCRETE';
+  document.getElementById('d-hz').value=50;
+  document.getElementById('d-bits').value=1;
+  document.getElementById('d-nt').value='';
+  onDtChange(); document.getElementById('dm').classList.add('open');
+}
+function closeDigModal(){document.getElementById('dm').classList.remove('open');}
+function onDtChange(){
+  const m=DMETA[document.getElementById('d-type').value]||DMETA.DIGITAL;
+  document.getElementById('d-bits').value=m.bits; calcDCh();
+}
+function calcDCh(){
+  const bits=parseInt(document.getElementById('d-bits').value)||1;
+  const bpch=parseInt(document.getElementById('bits_per_ch').value)||16;
+  document.getElementById('d-ch').value=Math.ceil(bits/bpch)+' CH';
+}
+function saveDig(){
+  const d={name:document.getElementById('d-name').value||'DIGITAL',type:document.getElementById('d-type').value,
+    hz:parseFloat(document.getElementById('d-hz').value)||50,bits:parseInt(document.getElementById('d-bits').value)||16,
+    note:document.getElementById('d-nt').value};
+  if(editDIdx>=0) digital[editDIdx]=d; else digital.push(d);
+  closeDigModal(); renderDigital();
+}
+
+// ─────────────────────────────────────────────────
+//  BIT CRUD
+// ─────────────────────────────────────────────────
+function renderBits(){
+  const f=F();
+  document.getElementById('b-body').innerHTML=bitData.map((b,i)=>{
+    const ch=Math.ceil(b.bytes/(f.B/8));
+    return `<tr class="${selB===i?'sel':''}" onclick="selBit(${i})" ondblclick="editBitRow(${i})">
+      <td>VL${b.vl}</td><td>${b.bytes}</td>
+      <td class="ca"><strong>${ch}</strong> <span style="font-size:10px;color:var(--text3)">(${b.bytes}B / ${f.B/8}B)</span></td>
+      <td style="color:var(--text3)">${b.note||''}</td>
+    </tr>`;
+  }).join('')||`<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text3)">Add BIT data</td></tr>`;
+  document.getElementById('tc-b').textContent=bitData.length;
+  document.getElementById('b-eb').disabled=selB<0;
+  document.getElementById('b-db').disabled=selB<0;
+  onFrameChange();
+}
+function selBit(i){selB=i;renderBits();}
+function delBit(){if(selB<0) return; bitData.splice(selB,1); selB=Math.min(selB,bitData.length-1); renderBits();}
+function editBit(){editBitRow(selB);}
+function editBitRow(i){
+  editBIdx=i; const b=bitData[i];
+  document.getElementById('bm-title').textContent='Edit BIT Data';
+  document.getElementById('b-vl').value=b.vl;
+  document.getElementById('b-by').value=b.bytes;
+  document.getElementById('b-nt').value=b.note;
+  calcBCh(); document.getElementById('bm').classList.add('open');
+}
+function openBitModal(){
+  editBIdx=-1;
+  document.getElementById('bm-title').textContent='Add BIT Data';
+  document.getElementById('b-vl').value=bitData.length+1;
+  document.getElementById('b-by').value=20;
+  document.getElementById('b-nt').value='';
+  calcBCh(); document.getElementById('bm').classList.add('open');
+}
+function closeBitModal(){document.getElementById('bm').classList.remove('open');}
+function calcBCh(){
+  const bytes=parseInt(document.getElementById('b-by').value)||2;
+  const bpch=parseInt(document.getElementById('bits_per_ch').value)||16;
+  document.getElementById('b-ch').value=Math.ceil(bytes/(bpch/8))+' CH';
+}
+function saveBit(){
+  const b={vl:parseInt(document.getElementById('b-vl').value)||1,bytes:parseInt(document.getElementById('b-by').value)||2,note:document.getElementById('b-nt').value};
+  if(editBIdx>=0) bitData[editBIdx]=b; else bitData.push(b);
+  closeBitModal(); renderBits();
+}
+
+// ─────────────────────────────────────────────────
+//  Generate (Python backend or JS fallback)
+// ─────────────────────────────────────────────────
+async function doGenerate(){
+  const f=F(); const used=calcUsed(f); const avail=f.W-f.sc-f.sf; // per minor frame
+  if(used.total>avail){ setMsg('Error: Channel overflow -- cannot generate'); return; }
+
+  setMsg('Generating channel table...');
+
+  {
+    // JS engine with slot-based supercom & distribution mode
+    setTimeout(()=>{
+      const br=bitrate(f); const rem=avail-used.total; const pct=avail>0?used.total/avail*100:0;
+      const maxSc=maxSupercom(f); const cls=pcmClass(f);
+
+      // Build frames using JS
+      const frames = [];
+      if(f.Z===1){
+        const row = buildRow(f, 0, maxSc);
+        frames.push({label:'Minor Frame', cells:row.map(c=>({name:c.label,color:c.color,subcom:c.subcom||false}))});
+      } else {
+        for(let i=0;i<f.Z;i++){
+          const row = buildRow(f, i, maxSc);
+          frames.push({label:`MF ${i} (SFID=${i})`, cells:row.map(c=>({name:c.label,color:c.color,subcom:c.subcom||false}))});
+        }
+      }
+
+      // Build param_list for export
+      const paramList = [];
+      const mfr = f.mhz * f.Z;
+      const wordBytes = f.B / 8;
+      let pidx = 1;
+      sensors.forEach(s => {
+        const sc_ = s.hz / mfr;
+        const isSub = sc_ < 1;
+        const scR = isSub ? 1 : Math.round(sc_);
+        const subR = isSub ? Math.round(1 / sc_) : 0;
+        const comm = isSub ? `Sub 1/${subR}` : scR > 1 ? `Super ${scR}x` : '1x';
+        const wpm = isSub ? s.ch : s.ch * scR;
+        const m = SMETA[s.type] || SMETA.ETC;
+        paramList.push({idx:pidx++, category:'Sensor', type:m.label, name:s.name,
+          hz:s.hz, ea:s.ch, comm:comm, words_per_minor:wpm, color:m.color, note:s.note||''});
+      });
+      digital.forEach(d => {
+        const sc_ = d.hz / mfr;
+        const ch = Math.ceil(d.bits / f.B);
+        const isSub = sc_ < 1;
+        const scR = isSub ? 1 : Math.round(sc_);
+        const subR = isSub ? Math.round(1 / sc_) : 0;
+        const comm = isSub ? `Sub 1/${subR}` : scR > 1 ? `Super ${scR}x` : '1x';
+        const wpm = isSub ? ch : ch * scR;
+        const m = DMETA[d.type] || DMETA.DIGITAL;
+        paramList.push({idx:pidx++, category:'Digital', type:m.label, name:d.name,
+          hz:d.hz, ea:`${d.bits}bits`, comm:comm, words_per_minor:wpm, color:m.color, note:d.note||''});
+      });
+      bitData.forEach(b => {
+        const ch = Math.ceil(b.bytes / wordBytes);
+        paramList.push({idx:pidx++, category:'BIT', type:'VL', name:`VL#${b.vl}`,
+          hz:'-', ea:`${b.bytes}bytes`, comm:'Sub', words_per_minor:ch, color:'#A0A0A0', note:b.note||''});
+      });
+
+      // Build legend from actual data
+      const legendMap = {};
+      legendMap['SYNC'] = '#FF4444';
+      legendMap['SFID'] = '#CC0000';
+      sensors.forEach(s => { const m=SMETA[s.type]||SMETA.ETC; legendMap[m.label]=m.color; });
+      digital.forEach(d => { const m=DMETA[d.type]||DMETA.DIGITAL; legendMap[m.label]=m.color; });
+      if(bitData.length>0) legendMap['BIT/VL']='#A0A0A0';
+      legendMap['RSVD']='#F5F5F5';
+      const legend = Object.entries(legendMap).map(([label,color])=>({label,color}));
+
+      lastResult = {
+        success: true,
+        frames: frames,
+        param_list: paramList,
+        legend: legend,
+        stats: {
+          bitrate:br, bitrate_mbps:+(br/1e6).toFixed(3), pcm_class:cls,
+          bit_repr:f.br, sync_bits:syncBits(f), sync_pattern:f.sp,
+          words_per_minor:f.W, bits_per_word:f.B, minor_count:f.Z,
+          frame_hz:f.mhz, total_available:avail, total_used:used.total,
+          total_reserved:rem, usage_pct:+(pct.toFixed(1)),
+          minor_frame_rate:f.mfr,
+          sensor_ch:used.su, digital_ch:used.du, bit_ch:used.bu,
+          subcom_positions:used.subPos||0, subcom_params:used.subSlots||0,
+          max_supercom:maxSc, overhead_per_minor:f.sc+f.sf,
+        }
+      };
+      showResult(lastResult);
+      setMsg('Channel table generated (JS fallback mode)');
+    },300);
+  }
+}
+
+function showResult(result){
+  document.getElementById('res-empty').style.display='none';
+  document.getElementById('res-content').style.display='block';
+
+  const s = result.stats;
+  document.getElementById('rg').innerHTML=[
+    {l:'Bit Rate',v:(s.bitrate/1000).toFixed(0),u:'kbps'},
+    {l:'PCM Class',v:s.pcm_class,u:''},
+    {l:'Bit Repr.',v:s.bit_repr,u:''},
+    {l:'SYNC Pattern',v:s.sync_bits+' bit',u:''},
+    {l:'Available',v:s.total_available.toLocaleString(),u:'words/minor'},
+    {l:'Sensor',v:s.sensor_ch.toLocaleString(),u:'words'},
+    {l:'Digital',v:s.digital_ch.toLocaleString(),u:'words'},
+    {l:'BIT',v:s.bit_ch.toLocaleString(),u:'words'},
+    ...(s.subcom_positions>0?[{l:'Subcom',v:s.subcom_positions,u:`positions (${s.subcom_params} params)`}]:[]),
+    {l:'Reserved',v:s.total_reserved.toLocaleString(),u:`words (${(100-s.usage_pct).toFixed(1)}%)`},
+    {l:'Max Supercom',v:s.max_supercom+'x',u:s.max_supercom>1?`MFR=${s.minor_frame_rate||s.frame_hz*s.minor_count} Hz`:''},
+  ].map(c=>`<div class="rc"><div class="rl">${c.l}</div><div class="rv">${c.v} <span class="ru">${c.u}</span></div></div>`).join('');
+
+  renderLegend();
+  renderChTable(result.frames, result.stats);
+  switchTab('result', document.querySelector('.tab:nth-child(4)'));
+}
+
+// ─────────────────────────────────────────────────
+//  File Operations (Python backend)
+// ─────────────────────────────────────────────────
+async function doOpenConfig(){
+  if(!hasPyApi()){ alert('File operations require the desktop application.'); return; }
+  try {
+    const r = await pywebview.api.open_config();
+    if(!r.success){ if(r.reason!=='cancelled') alert('Open failed: '+r.reason); return; }
+    applyConfig(r.config);
+    setMsg('Config loaded: ' + r.path);
+  } catch(e){ alert('Error: '+e.message); }
+}
+
+async function doSaveConfig(){
+  if(!hasPyApi()){ alert('File operations require the desktop application.'); return; }
+  try {
+    const config = buildConfig();
+    const r = await pywebview.api.save_config(JSON.stringify(config));
+    if(!r.success){ if(r.reason!=='cancelled') alert('Save failed: '+r.reason); return; }
+    setMsg('Config saved: ' + r.path);
+  } catch(e){ alert('Error: '+e.message); }
+}
+
+async function doExportExcel(){
+  if(!lastResult){ alert('채널표를 먼저 생성하세요.'); return; }
+  if(hasPyApi()){
+    try {
+      const config = buildConfig();
+      const r = await pywebview.api.export_excel(JSON.stringify(config), JSON.stringify(lastResult));
+      if(!r.success){ if(r.reason!=='cancelled') alert('Export failed: '+r.reason); return; }
+      setMsg('Excel exported: ' + r.path);
+    } catch(e){ alert('Error: '+e.message); }
+  } else {
+    // Browser fallback: generate CSV instead
+    alert('Excel(.xlsx) 내보내기는 데스크톱 앱에서만 가능합니다.\nCSV로 대신 내보냅니다.');
+    doExportCSV();
+  }
+}
+
+function doExportCSV(){
+  if(!lastResult){ alert('채널표를 먼저 생성하세요.'); return; }
+  const s = lastResult.stats;
+  const frames = lastResult.frames;
+  const W = s.words_per_minor;
+  const lines = [];
+
+  // ── Sheet 1: Summary ──
+  lines.push('=== PCM Configuration Summary ===');
+  lines.push('');
+  lines.push('Parameter,Value');
+  lines.push(`PCM Class,${s.pcm_class}`);
+  lines.push(`Bit Rate,"${s.bitrate.toLocaleString()} bps (${s.bitrate_mbps} Mbps)"`);
+  lines.push(`Bit Representation,${s.bit_repr}`);
+  lines.push(`Words / Minor Frame,${s.words_per_minor}`);
+  lines.push(`Bits / Word,${s.bits_per_word}`);
+  lines.push(`Minor Frames (Z),${s.minor_count}`);
+  lines.push(`Major Frame Rate,${s.frame_hz} Hz`);
+  lines.push(`Minor Frame Rate,${s.minor_frame_rate || s.frame_hz * s.minor_count} Hz`);
+  lines.push(`SYNC Pattern,${s.sync_pattern}`);
+  lines.push(`SYNC Bits,${s.sync_bits} bit`);
+  lines.push(`Overhead / Minor,${s.overhead_per_minor} words`);
+  lines.push('');
+  lines.push('=== Channel Usage ===');
+  lines.push('');
+  lines.push(`Total Available,${s.total_available}`);
+  lines.push(`Sensor Channels,${s.sensor_ch}`);
+  lines.push(`Digital Channels,${s.digital_ch}`);
+  lines.push(`BIT Channels,${s.bit_ch}`);
+  lines.push(`Total Used,${s.total_used}`);
+  lines.push(`Reserved (Spare),${s.total_reserved}`);
+  lines.push(`Usage,${s.usage_pct}%`);
+  lines.push(`Max Supercommutation,${s.max_supercom}x`);
+  lines.push('');
+
+  // ── Sheet 2: Parameter List ──
+  lines.push('=== Parameter List ===');
+  lines.push('');
+  const f = F();
+  const mfr = f.mhz * f.Z;
+  const wordBytes = f.B / 8;
+  let idx = 1;
+  lines.push('#,Category,Type,Name,Hz,EA,Comm,Words/Minor,Note');
+  sensors.forEach(se => {
+    const sc = se.hz / mfr;
+    const isSub = sc < 1;
+    const comm = isSub ? `Sub 1/${Math.round(1/sc)}` : sc > 1 ? `Super ${Math.round(sc)}x` : '1x';
+    const wpm = isSub ? se.ch : se.ch * Math.round(sc);
+    lines.push(`${idx++},Sensor,${se.type},${se.name},${se.hz},${se.ch},${comm},${wpm},"${se.note||''}"`);
+  });
+  digital.forEach(d => {
+    const sc = d.hz / mfr;
+    const ch = Math.ceil(d.bits / f.B);
+    const isSub = sc < 1;
+    const comm = isSub ? `Sub 1/${Math.round(1/sc)}` : sc > 1 ? `Super ${Math.round(sc)}x` : '1x';
+    const wpm = isSub ? ch : ch * Math.round(sc);
+    lines.push(`${idx++},Digital,${d.type},${d.name},${d.hz},${d.bits}bits,${comm},${wpm},"${d.note||''}"`);
+  });
+  bitData.forEach(b => {
+    const ch = Math.ceil(b.bytes / wordBytes);
+    lines.push(`${idx++},BIT,VL,VL#${b.vl},,${b.bytes}bytes,Sub,${ch},"${b.note||''}"`);
+  });
+  lines.push('');
+
+  // ── Sheet 3: Channel Allocation Table ──
+  lines.push('=== Channel Allocation Table ===');
+  lines.push('');
+  // Header row: Row/CH, 1, 2, ... W
+  const hdr = ['Row/CH'];
+  for(let i=1;i<=W;i++) hdr.push(i);
+  lines.push(hdr.join(','));
+  // Data rows
+  frames.forEach(fr => {
+    const row = ['"'+fr.label+'"'];
+    fr.cells.forEach(c => {
+      const v = c.name || 'RSVD';
+      row.push(v.includes(',') ? '"'+v+'"' : v);
+    });
+    lines.push(row.join(','));
+  });
+
+  // Download
+  const csv = '\uFEFF' + lines.join('\n'); // BOM for Excel Korean
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `PCM_ChannelTable_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  setMsg('CSV exported: ' + a.download);
+}
+
+function applyConfig(cfg){
+  document.getElementById('major_hz').value = cfg.frame_hz || 50;
+  document.getElementById('minor_count').value = cfg.minor_count || 1;
+  document.getElementById('ch_per_minor').value = cfg.words_per_minor || 1280;
+  document.getElementById('bits_per_ch').value = cfg.bits_per_word || 16;
+  document.getElementById('sync_count').value = cfg.sync_count || 2;
+  document.getElementById('sfid_count').value = cfg.sfid_count || 1;
+  document.getElementById('sync_pattern').value = cfg.sync_pattern || '0xFAF3';
+  document.getElementById('bit_repr').value = cfg.bit_repr || 'NRZ-L';
+
+  sensors = (cfg.sensors || []).map(s => ({
+    type:s.type, name:s.name, hz:s.hz, ch:s.ch,
+    dau:s.dau||'MDAU', note:s.note||''
+  }));
+  digital = (cfg.digital || []).map(d => ({
+    type:d.type, name:d.name, hz:d.hz, bits:d.bits,
+    dau:d.dau||'MDAU', note:d.note||''
+  }));
+  bitData = (cfg.bit_data || []).map(b => ({
+    vl:b.vl, bytes:b.bytes, note:b.note||''
+  }));
+
+  selS=-1; selD=-1; selB=-1;
+
+  // Restore bitrate
+  if(cfg.locked_bitrate){
+    document.getElementById('br-preset').value='';
+    document.getElementById('br-custom').value=cfg.locked_bitrate;
+  }
+
+  renderSensors(); renderDigital(); renderBits();
+  recalcW();
+}
+
+// ─────────────────────────────────────────────────
+//  Sample Data
+// ─────────────────────────────────────────────────
+function loadSample(){
+  document.getElementById('br-preset').value='1024000';
+  document.getElementById('br-custom').value='';
+  document.getElementById('major_hz').value=1;
+  document.getElementById('minor_count').value=50;
+  document.getElementById('bits_per_ch').value=16;
+  document.getElementById('sync_count').value=2;
+  document.getElementById('sfid_count').value=1;
+  document.getElementById('sync_pattern').value='0xFAF3, 0x3400';
+  document.getElementById('sync-preset').value='0xFAF3,0x3400';
+  document.getElementById('bit_repr').value='NRZ-L';
+
+  sensors=[
+    {type:'ACCICP', name:'ACC_ICP_1',  hz:800, ch:12, note:''},
+    {type:'ACCICP', name:'ACC_ICP_2',  hz:800, ch:11, note:''},
+    {type:'PIEZO',  name:'PIEZO_1',    hz:800, ch:10, note:''},
+    {type:'PIEZO',  name:'PIEZO_2',    hz:800, ch:10, note:''},
+    {type:'RTD',    name:'RTD_1',      hz:50,  ch:32, note:'PT100'},
+    {type:'RTD',    name:'RTD_2',      hz:50,  ch:16, note:''},
+    {type:'RTD',    name:'RTD_3',      hz:50,  ch:16, note:''},
+    {type:'STR3W',  name:'STR3W_1',    hz:50,  ch:16, note:''},
+    {type:'STR4W',  name:'STR4W_1',    hz:50,  ch:12, note:''},
+    {type:'PRS',    name:'PRS_1',      hz:50,  ch:24, note:''},
+    {type:'ACCDC',  name:'ACC_DC_1',   hz:50,  ch:12, note:''},
+    {type:'VOLTAGE',name:'VOLT_1',     hz:50,  ch:12, note:''},
+    {type:'TC',     name:'TC_1',       hz:50,  ch:14, note:''},
+    {type:'RTD',    name:'RTD_SLOW',   hz:10,  ch:8,  note:'low-rate monitoring'},
+    {type:'TC',     name:'TC_SLOW',    hz:5,   ch:4,  note:'ambient temp'},
+  ];
+  digital=[
+    {name:'ARINC429_BUS1',type:'ARINC429',hz:50,bits:256,note:'Nav bus (8 labels)'},
+    {name:'DISCRETE_SYS', type:'DISCRETE',hz:50,bits:16, note:'16 discrete channels'},
+    {name:'ENCODER_POS',  type:'ENCODER', hz:50,bits:16, note:'Control surface position'},
+  ];
+  bitData=[
+    {vl:1,bytes:20,note:'MIL-STD-1553B BUS A'},
+    {vl:2,bytes:20,note:'MIL-STD-1553B BUS B'},
+    {vl:3,bytes:32,note:'ENG BUS'},
+    {vl:4,bytes:20,note:'NAV BUS'},
+    {vl:5,bytes:12,note:'CTRL BUS'},
+    {vl:6,bytes:16,note:'ECS BUS'},
+    {vl:7,bytes:10,note:'MISC'},
+  ];
+  selS=-1;selD=-1;selB=-1;
+  renderSensors();renderDigital();renderBits();
+  recalcW();
+  setMsg('Sample loaded: 1 Mbps, Major=1 Hz, Z=50 (MFR=50 Hz)');
+}
+
+function setMsg(m){document.getElementById('s-msg').textContent=m;}
+
+// ─────────────────────────────────────────────────
+//  Keyboard
+// ─────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape') document.querySelectorAll('.mo.open').forEach(m=>m.classList.remove('open'));
+});
+
+// Init
+loadSample();
+</script>
+</body>
+</html>

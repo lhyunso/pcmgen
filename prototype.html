@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCM Channel Config Generator | IRIG 106 Ch.4</title>
+<style>
+:root {
+  --bg:#F0F4F8; --panel:#FFF; --border:#D1D9E0;
+  --accent:#1A6FB5; --accent2:#0F4C81;
+  --text:#1A202C; --text2:#4A5568; --text3:#718096;
+  --ok:#2D7D46; --warn:#B45309; --err:#B91C1C;
+  --ok-bg:#DCFCE7; --warn-bg:#FEF3C7; --err-bg:#FEE2E2;
+  --c1:#16A34A; --c2:#D97706; --r:6px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg);color:var(--text);font-size:13px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── Top Bar ── */
+#tb{background:var(--accent2);color:#fff;padding:0 14px;height:42px;display:flex;align-items:center;gap:10px;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+#tb h1{font-size:13px;font-weight:600;letter-spacing:.3px}
+.pb{background:#F59E0B;color:#1A202C;font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px}
+.sp{flex:1}
+.bt{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:5px 11px;border-radius:var(--r);cursor:pointer;font-size:12px;transition:background .15s;white-space:nowrap}
+.bt:hover{background:rgba(255,255,255,.28)}
+.bt.p{background:#2563EB;border-color:#1D4ED8}
+.bt.p:hover{background:#1D4ED8}
+
+/* ── Layout ── */
+#main{display:flex;flex:1;overflow:hidden}
+#left{width:310px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto}
+#right{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── Section ── */
+.sec{padding:12px 14px;border-bottom:1px solid var(--border)}
+.sh{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text3);margin-bottom:9px;display:flex;align-items:center;gap:6px}
+
+/* ── Badge ── */
+#cbadge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;margin-left:auto}
+#cbadge.c1{background:#DCFCE7;color:var(--c1);border:1px solid #BBF7D0}
+#cbadge.c2{background:#FEF3C7;color:var(--c2);border:1px solid #FDE68A}
+
+/* ── Form ── */
+.fr{margin-bottom:7px}
+.fr label{display:block;font-size:11px;color:var(--text2);margin-bottom:3px;font-weight:500}
+.fr input,.fr select{width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:var(--r);font-size:12px;background:#FAFBFC;color:var(--text);transition:border-color .15s,box-shadow .15s}
+.fr input:focus,.fr select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(26,111,181,.12)}
+.fr input.er{border-color:var(--err);background:#FFF5F5}
+.fr .hint{font-size:10px;color:var(--text3);margin-top:2px}
+.fr .hint.er{color:var(--err)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:7px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:7px}
+.g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:5px;margin-bottom:7px}
+
+/* ── Stats ── */
+#sbox{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.sc{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:7px 9px}
+.sc .lb{font-size:9px;color:var(--text3);margin-bottom:1px;text-transform:uppercase;letter-spacing:.4px}
+.sc .vl{font-size:14px;font-weight:700;color:var(--accent)}
+.sc .ut{font-size:9px;color:var(--text3);font-weight:400}
+.sc.full{grid-column:1/-1}
+.sc.ok .vl{color:var(--ok)} .sc.warn .vl{color:var(--warn)} .sc.er .vl{color:var(--err)}
+.pb-w{margin-top:5px} .pb-l{display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:3px}
+.pb-b{height:5px;background:var(--border);border-radius:3px;overflow:hidden}
+.pb-f{height:100%;border-radius:3px;transition:width .3s}
+.pb-f.ok{background:var(--ok)} .pb-f.warn{background:var(--warn)} .pb-f.er{background:var(--err)}
+
+/* ── Mini preview ── */
+#mp{display:flex;flex-wrap:wrap;gap:1px;margin-top:4px}
+.mc{width:7px;height:7px;border-radius:1px;flex-shrink:0}
+
+/* ── Validation ── */
+#vmsg{display:flex;flex-direction:column;gap:3px}
+.vm{display:flex;align-items:flex-start;gap:5px;padding:5px 7px;border-radius:var(--r);font-size:11px;line-height:1.4}
+.vm.er{background:var(--err-bg);color:#991B1B;border-left:3px solid var(--err)}
+.vm.warn{background:var(--warn-bg);color:#92400E;border-left:3px solid #F59E0B}
+.vm.info{background:#EFF6FF;color:#1E40AF;border-left:3px solid #3B82F6}
+.vm .ic{font-size:11px;flex-shrink:0;margin-top:1px}
+
+/* ── Tabs ── */
+#tabs{background:var(--panel);border-bottom:1px solid var(--border);display:flex;padding:0 14px;flex-shrink:0}
+.tab{padding:9px 15px;font-size:12px;font-weight:500;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;white-space:nowrap}
+.tab:hover{color:var(--accent)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.tab .cnt{display:inline-block;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:1px 5px;font-size:10px;margin-left:4px;color:var(--text2)}
+#tc{flex:1;overflow-y:auto;padding:14px}
+.tp{display:none}
+.tp.active{display:block}
+
+/* ── Tables ── */
+.dt{width:100%;border-collapse:collapse;font-size:12px}
+.dt th{background:var(--bg);border:1px solid var(--border);padding:5px 9px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text3);white-space:nowrap}
+.dt td{border:1px solid var(--border);padding:6px 9px;color:var(--text);vertical-align:middle}
+.dt tr:hover td{background:#F7FAFC}
+.dt tr.sel td{background:#EBF4FF}
+.sdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
+
+/* ── Toolbar ── */
+.tb2{display:flex;align-items:center;gap:5px;margin-bottom:9px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:4px;padding:5px 11px;border:1px solid var(--border);border-radius:var(--r);background:var(--panel);color:var(--text2);font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.p{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.p:hover{background:var(--accent2);border-color:var(--accent2)}
+.btn.d{color:var(--err)}
+.btn.d:hover{border-color:var(--err);background:var(--err-bg)}
+.btn:disabled{opacity:.4;cursor:default;pointer-events:none}
+
+/* ── Channel Table (Result) ── */
+#cht-wrap{overflow:auto;max-height:calc(100vh - 200px);border:1px solid var(--border);border-radius:var(--r)}
+#cht{border-collapse:collapse;font-size:10px;white-space:nowrap}
+#cht th{background:#1E3A5F;color:#fff;border:1px solid #2D4E7A;padding:4px 6px;text-align:center;position:sticky;top:0;z-index:2}
+#cht th.rh{position:sticky;left:0;z-index:3;background:#1E3A5F}
+#cht td{border:1px solid #ddd;padding:3px 5px;text-align:center;min-width:38px;max-width:60px;overflow:hidden;text-overflow:ellipsis;cursor:default}
+#cht td.rh{background:#f0f4f8;font-weight:600;color:var(--text2);font-size:10px;position:sticky;left:0;z-index:1;border-right:2px solid var(--border)}
+#cht td.sb{border-left:3px solid #555!important}
+
+/* ── Result Summary Cards ── */
+#rg{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:14px}
+.rc{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px}
+.rc .rl{font-size:10px;color:var(--text3);margin-bottom:3px}
+.rc .rv{font-size:16px;font-weight:700;color:var(--accent)}
+.rc .ru{font-size:10px;color:var(--text3);font-weight:400}
+
+/* ── Legend ── */
+.leg{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.li{display:flex;align-items:center;gap:3px;font-size:10px;color:var(--text2)}
+.ld{width:10px;height:10px;border-radius:2px;flex-shrink:0;border:1px solid rgba(0,0,0,.1)}
+
+/* ── Modal ── */
+.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center}
+.mo.open{display:flex}
+.mw{background:var(--panel);border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.28);width:460px;max-width:94vw;max-height:88vh;overflow-y:auto;animation:fi .15s ease}
+@keyframes fi{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+.mh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.mh h3{font-size:14px;font-weight:600}
+.mc2{background:none;border:none;font-size:18px;cursor:pointer;color:var(--text3);padding:0 3px;line-height:1}
+.mc2:hover{color:var(--text)}
+.mb{padding:14px 18px}
+.mf{padding:10px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:7px}
+
+/* ── Status Bar ── */
+#sb{background:#F8FAFC;border-top:1px solid var(--border);padding:0 14px;height:24px;display:flex;align-items:center;gap:14px;flex-shrink:0;font-size:11px;color:var(--text3)}
+#sb .sm{flex:1}
+.sp2{padding:2px 7px;border-radius:9px;font-size:10px;font-weight:600}
+.sp2.c1{background:#DCFCE7;color:var(--c1)} .sp2.c2{background:#FEF3C7;color:var(--c2)}
+
+.out-row{display:flex;gap:5px;align-items:center}
+.out-row input{flex:1}
+.sep{height:1px;background:var(--border);margin:5px 0}
+::-webkit-scrollbar{width:5px;height:5px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:#CBD5E0;border-radius:3px}
+.empty{text-align:center;padding:36px 20px;color:var(--text3)}
+.empty .em{font-size:28px;margin-bottom:7px}
+</style>
+</head>
+<body>
+
+<!-- ── Top Bar ── -->
+<div id="tb">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+  <h1>PCM Channel Config Generator &nbsp;|&nbsp; IRIG 106 Ch.4</h1>
+  <span class="pb">PROTOTYPE</span>
+  <div class="sp"></div>
+  <button class="bt" onclick="loadSample()">샘플 로드</button>
+  <button class="bt" onclick="alert('pywebview 파일 다이얼로그 (실제 앱)')">설정 열기</button>
+  <button class="bt" onclick="alert('pywebview 파일 다이얼로그 (실제 앱)')">설정 저장</button>
+  <button class="bt p" onclick="doGenerate()">▶ 채널표 생성</button>
+</div>
+
+<!-- ── Main ── -->
+<div id="main">
+
+<!-- ════ LEFT PANEL ════ -->
+<div id="left">
+
+<!-- Frame Parameters -->
+<div class="sec">
+  <div class="sh">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+    프레임 파라미터
+    <span id="cbadge" class="c1">Class I</span>
+  </div>
+
+  <!-- Bitrate target -->
+  <div class="fr">
+    <label>목표 비트레이트 <span style="color:var(--text3);font-weight:400">(선택 → 채널 수 자동계산)</span></label>
+    <div style="display:flex;gap:5px">
+      <select id="br-preset" style="width:130px;flex-shrink:0" onchange="applyBrPreset()">
+        <option value="">직접 입력</option>
+        <option value="512000">512 kbps</option>
+        <option value="1024000" selected>1 Mbps</option>
+        <option value="2048000">2 Mbps</option>
+        <option value="4096000">4 Mbps</option>
+        <option value="5000000">5 Mbps (C1 한도)</option>
+        <option value="8192000">8 Mbps</option>
+        <option value="10000000">10 Mbps</option>
+        <option value="16384000">16 Mbps</option>
+      </select>
+      <input type="number" id="br-custom" placeholder="bps" style="flex:1" oninput="onBrCustom()" value="">
+    </div>
+    <div class="hint" id="br-hint">실제 전송속도: — bps</div>
+  </div>
+  <div class="sep"></div>
+
+  <div class="g2">
+    <div class="fr"><label>Major Frame (Hz)</label>
+      <input type="number" id="major_hz" value="50" min="0.001" step="any" oninput="onFrameChange()">
+    </div>
+    <div class="fr"><label>Minor Frame 수 <span style="color:var(--text3)">(Z≤256)</span></label>
+      <input type="number" id="minor_count" value="1" min="1" max="256" oninput="onFrameChange()">
+    </div>
+  </div>
+  <div class="g2">
+    <div class="fr"><label>채널 수 / Minor Frame</label>
+      <input type="number" id="ch_per_minor" value="1280" min="4" oninput="onFrameChange()">
+    </div>
+    <div class="fr"><label>워드 길이 (bit)</label>
+      <select id="bits_per_ch" onchange="onFrameChange()">
+        <option value="8">8 bit</option>
+        <option value="10">10 bit</option>
+        <option value="12">12 bit</option>
+        <option value="16" selected>16 bit</option>
+        <option value="32">32 bit</option>
+      </select>
+    </div>
+  </div>
+  <div class="g3">
+    <div class="fr"><label>SYNC 채널</label>
+      <input type="number" id="sync_count" value="2" min="1" max="4" oninput="onFrameChange()">
+    </div>
+    <div class="fr"><label>SFID 채널</label>
+      <input type="number" id="sfid_count" value="1" min="0" max="2" oninput="onFrameChange()">
+    </div>
+    <div class="fr"><label>비트 표현</label>
+      <select id="bit_repr">
+        <option value="NRZ-L" selected>NRZ-L</option>
+        <option value="NRZ-M">NRZ-M</option>
+        <option value="NRZ-S">NRZ-S</option>
+        <option value="Biφ-L">Biφ-L</option>
+        <option value="Biφ-M">Biφ-M</option>
+        <option value="Biφ-S">Biφ-S</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- SYNC Pattern -->
+  <div class="fr">
+    <label>SYNC 패턴 <span style="color:var(--text3);font-weight:400">— IRIG-106 Appendix C 표준 패턴</span></label>
+    <select id="sync-preset" onchange="applySyncPreset()" style="margin-bottom:5px">
+      <optgroup label="── 16 bit (권장) ──">
+        <option value="0xFAF3"     data-bits="16">0xFAF3  — 1111 1010 1111 0011  (16 bit) ★ 가장 일반적</option>
+        <option value="0x6B50"     data-bits="16">0x6B50  — 0110 1011 0101 0000  (16 bit)</option>
+        <option value="0x25F6"     data-bits="16">0x25F6  — 0010 0101 1111 0110  (16 bit)</option>
+        <option value="0xEB90"     data-bits="16">0xEB90  — 1110 1011 1001 0000  (16 bit)</option>
+        <option value="0xFFF0"     data-bits="16">0xFFF0  — 1111 1111 1111 0000  (16 bit)</option>
+      </optgroup>
+      <optgroup label="── 24 bit ──">
+        <option value="0xFAF320"   data-bits="24">0xFAF320  (24 bit)</option>
+        <option value="0x6B4EB2"   data-bits="24">0x6B4EB2  (24 bit)</option>
+        <option value="0xEB9071"   data-bits="24">0xEB9071  (24 bit)</option>
+      </optgroup>
+      <optgroup label="── 32 bit ──">
+        <option value="0xFAF3EB90" data-bits="32">0xFAF3EB90  (32 bit)</option>
+        <option value="0x6B506B50" data-bits="32">0x6B506B50  (32 bit)</option>
+      </optgroup>
+      <optgroup label="── 2-word (각 16 bit = 32 bit 총합) ──">
+        <option value="0xFAF3,0x3400" data-bits="32">0xFAF3, 0x3400  — 2-word 32 bit (참조 엑셀)</option>
+        <option value="0xEB90,0x1470" data-bits="32">0xEB90, 0x1470  — 2-word 32 bit</option>
+      </optgroup>
+      <optgroup label="── 사용자 정의 ──">
+        <option value="custom">사용자 정의...</option>
+      </optgroup>
+    </select>
+    <input type="text" id="sync_pattern" value="0xFAF3, 0x3400" oninput="onSyncCustom()" placeholder="0xFAF3, 0x3400">
+    <div class="hint" id="sync-hint">총 32 bit — IRIG-106 허용 범위 (16~33 bit) ✓</div>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="sec">
+  <div class="sh">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 3v18h18"/><path d="m9 9 3 3 3-3 3 3"/></svg>
+    채널 현황
+  </div>
+  <div id="sbox">
+    <div class="sc full">
+      <div class="lb">전송 속도</div>
+      <div style="display:flex;align-items:baseline;gap:6px">
+        <span class="vl" id="st-br">1,024,000</span>
+        <span class="ut">bps</span>
+        <span class="ut" id="st-br2" style="font-size:12px;font-weight:600;color:var(--text2)">(1.024 Mbps)</span>
+      </div>
+    </div>
+    <div class="sc">
+      <div class="lb">Frame 비트 수</div>
+      <div class="vl" id="st-fb">20,480</div>
+      <div class="ut">bits / frame</div>
+    </div>
+    <div class="sc">
+      <div class="lb">PCM 클래스</div>
+      <div class="vl" id="st-cls" style="color:var(--c2)">Class II</div>
+    </div>
+    <div class="sc full">
+      <div class="lb">채널 사용</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:2px">
+        <div><span class="vl" id="st-used" style="color:var(--text)">0</span><span class="ut"> / <span id="st-avail">1277</span> CH</span></div>
+        <div><span id="st-rem" style="font-size:14px;font-weight:700;color:var(--ok)">1277</span><span class="ut"> 잔여 (<span id="st-pct">100</span>%)</span></div>
+      </div>
+      <div class="pb-w"><div class="pb-b"><div class="pb-f ok" id="st-bar" style="width:0%"></div></div></div>
+    </div>
+    <div class="sc"><div class="lb">Max Supercom</div><div class="vl" id="st-sc">1×</div></div>
+    <div class="sc"><div class="lb">슬롯 폭</div><div class="vl" id="st-sw">—</div><div class="ut">CH</div></div>
+  </div>
+</div>
+
+<!-- Validation -->
+<div class="sec">
+  <div class="sh">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m10.29 3.86-7 12A2 2 0 0 0 5 19h14a2 2 0 0 0 1.71-2.14l-7-12a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    유효성 검사
+  </div>
+  <div id="vmsg"></div>
+</div>
+
+<!-- Mini Preview -->
+<div class="sec">
+  <div class="sh">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    채널 배치 미리보기
+  </div>
+  <div id="mp"></div>
+</div>
+
+<!-- Output -->
+<div class="sec" style="border-bottom:none">
+  <div class="sh"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>출력 파일</div>
+  <div class="out-row">
+    <input type="text" id="out_path" placeholder="~/Desktop/output_channel_table.xlsx" style="font-size:11px">
+    <button class="btn" onclick="alert('pywebview 저장 다이얼로그')" style="padding:5px 8px">📁</button>
+  </div>
+</div>
+
+</div><!-- /left -->
+
+<!-- ════ RIGHT PANEL ════ -->
+<div id="right">
+<div id="tabs">
+  <div class="tab active" onclick="switchTab('sensors',this)">아날로그 센서 <span class="cnt" id="tc-s">0</span></div>
+  <div class="tab" onclick="switchTab('digital',this)">디지털 데이터 <span class="cnt" id="tc-d">0</span></div>
+  <div class="tab" onclick="switchTab('bit',this)">BIT 데이터 <span class="cnt" id="tc-b">0</span></div>
+  <div class="tab" onclick="switchTab('result',this)">결과 요약 / 채널표</div>
+</div>
+
+<div id="tc">
+
+<!-- ── Analog Sensors ── -->
+<div id="panel-sensors" class="tp active">
+  <div class="tb2">
+    <button class="btn p" onclick="openSensorModal()">+ 센서 추가</button>
+    <button class="btn" id="b-es" onclick="editSensor()" disabled>수정</button>
+    <button class="btn d" id="b-ds" onclick="delSensor()" disabled>삭제</button>
+    <div style="flex:1"></div>
+    <button class="btn" id="b-us" onclick="moveSensor(-1)" disabled>▲</button>
+    <button class="btn" id="b-ns" onclick="moveSensor(1)" disabled>▼</button>
+  </div>
+  <table class="dt">
+    <thead><tr>
+      <th>#</th><th>종류</th><th>파라미터명</th>
+      <th>Hz</th><th>EA</th><th>Supercom</th><th>PCM CH</th>
+      <th>DAU</th><th>비고</th>
+    </tr></thead>
+    <tbody id="s-body"></tbody>
+  </table>
+</div>
+
+<!-- ── Digital Data ── -->
+<div id="panel-digital" class="tp">
+  <div class="tb2">
+    <button class="btn p" onclick="openDigModal()">+ 디지털 추가</button>
+    <button class="btn" id="b-ed" onclick="editDig()" disabled>수정</button>
+    <button class="btn d" id="b-dd" onclick="delDig()" disabled>삭제</button>
+  </div>
+  <table class="dt">
+    <thead><tr>
+      <th>이름</th><th>데이터 타입</th><th>샘플 Hz</th>
+      <th>비트 수</th><th>PCM CH</th><th>DAU</th><th>비고</th>
+    </tr></thead>
+    <tbody id="d-body"></tbody>
+  </table>
+  <p style="margin-top:8px;font-size:11px;color:var(--text3)">
+    ※ ARINC 429 (32 bit/워드), MIL-STD-1553B, RS-422 직렬, 이산신호(Discrete) 등 디지털 데이터를 PCM 채널에 매핑합니다.
+  </p>
+</div>
+
+<!-- ── BIT Data ── -->
+<div id="panel-bit" class="tp">
+  <div class="tb2">
+    <button class="btn p" onclick="openBitModal()">+ BIT 추가</button>
+    <button class="btn" id="b-eb" onclick="editBit()" disabled>수정</button>
+    <button class="btn d" id="b-db" onclick="delBit()" disabled>삭제</button>
+  </div>
+  <table class="dt">
+    <thead><tr><th>VL 번호</th><th>크기 (bytes)</th><th>PCM 채널 수</th><th>비고</th></tr></thead>
+    <tbody id="b-body"></tbody>
+  </table>
+  <p style="margin-top:8px;font-size:11px;color:var(--text3)">
+    ※ BIT(Built-In Test): MIL-STD-1553B 등 외부 버스 데이터를 PCM에 서브콤 방식으로 삽입.
+  </p>
+</div>
+
+<!-- ── Result / Channel Table ── -->
+<div id="panel-result" class="tp">
+  <div id="res-empty" class="empty">
+    <div class="em">📊</div>
+    <p>채널표를 생성하면 결과와 채널 할당표가 표시됩니다.</p>
+    <p style="margin-top:8px"><button class="btn p" onclick="doGenerate()">▶ 채널표 생성</button></p>
+  </div>
+  <div id="res-content" style="display:none">
+    <!-- Summary cards -->
+    <div id="rg"></div>
+    <div style="margin-bottom:10px">
+      <strong style="font-size:12px;color:var(--text2)">▼ 채널 할당표</strong>
+      <span style="font-size:11px;color:var(--text3);margin-left:8px">행 = Minor Frame / Slot, 열 = 채널 번호</span>
+    </div>
+    <div class="leg" id="leg"></div>
+    <div id="cht-wrap"><table id="cht"></table></div>
+  </div>
+</div>
+
+</div><!-- /tc -->
+</div><!-- /right -->
+</div><!-- /main -->
+
+<!-- Status Bar -->
+<div id="sb">
+  <span class="sm" id="s-msg">준비</span>
+  <span id="sb-cls" class="sp2 c2">Class II</span>
+  <span>전송속도: <strong id="sb-br">—</strong></span>
+  <span style="color:var(--border)">|</span>
+  <span>IRIG-106-22 Ch.4</span>
+</div>
+
+<!-- ════ MODALS ════ -->
+
+<!-- Sensor Modal -->
+<div class="mo" id="sm">
+  <div class="mw">
+    <div class="mh"><h3 id="sm-title">센서 추가</h3><button class="mc2" onclick="closeSensorModal()">×</button></div>
+    <div class="mb">
+      <div class="fr"><label>센서 종류</label>
+        <select id="m-st" onchange="onStChange()">
+          <option value="RTD">RTD (PT100 저항 온도계)</option>
+          <option value="STR3W">STR 3W (스트레인게이지 3선)</option>
+          <option value="STR4W">STR 4W (스트레인게이지 4선)</option>
+          <option value="PRS">PRS (압력 센서)</option>
+          <option value="ACCICP">ACC(ICP) (진동 가속도 ICP)</option>
+          <option value="ACCDC">ACC(DC) (진동 가속도 DC)</option>
+          <option value="VOLTAGE">VOLTAGE (전압)</option>
+          <option value="TC">TC (열전대)</option>
+          <option value="PIEZO">PIEZO (피에조 압력)</option>
+          <option value="ACOUSTIC">ACOUSTIC (음향)</option>
+          <option value="ETC">기타</option>
+        </select>
+      </div>
+      <div class="fr"><label>파라미터명</label><input type="text" id="m-pn" placeholder="예: MDAU_RTD_1"></div>
+      <div class="g2">
+        <div class="fr"><label>계측주기 (Hz)</label>
+          <input type="number" id="m-hz" value="50" min="0.001" step="any" oninput="onMHz()">
+          <div class="hint" id="m-sc">Supercom: 1×</div>
+        </div>
+        <div class="fr"><label>채널 수 (EA)</label><input type="number" id="m-ch" value="1" min="1"></div>
+      </div>
+      <div class="g2">
+        <div class="fr"><label>DAU</label>
+          <select id="m-dau"><option>MDAU</option><option>SDAU#1</option><option>SDAU#2</option><option>SDAU#3</option><option>SDAU#4</option><option>mixed</option></select>
+        </div>
+        <div class="fr"><label>비고</label><input type="text" id="m-nt" placeholder="선택"></div>
+      </div>
+    </div>
+    <div class="mf"><button class="btn" onclick="closeSensorModal()">취소</button><button class="btn p" onclick="saveSensor()">저장</button></div>
+  </div>
+</div>
+
+<!-- Digital Modal -->
+<div class="mo" id="dm">
+  <div class="mw">
+    <div class="mh"><h3 id="dm-title">디지털 데이터 추가</h3><button class="mc2" onclick="closeDigModal()">×</button></div>
+    <div class="mb">
+      <div class="fr"><label>데이터 이름</label><input type="text" id="d-name" placeholder="예: ARINC429_BUS1"></div>
+      <div class="g2">
+        <div class="fr"><label>데이터 타입</label>
+          <select id="d-type" onchange="onDtChange()">
+            <option value="DISCRETE">Discrete (이산신호)</option>
+            <option value="ARINC429">ARINC 429</option>
+            <option value="1553B">MIL-STD-1553B</option>
+            <option value="RS422">RS-422/485 직렬</option>
+            <option value="LVDT">LVDT/RVDT</option>
+            <option value="RESOLVER">리졸버</option>
+            <option value="ENCODER">엔코더</option>
+            <option value="DIGITAL">디지털 기타</option>
+          </select>
+        </div>
+        <div class="fr"><label>DAU</label>
+          <select id="d-dau"><option>MDAU</option><option>SDAU#1</option><option>SDAU#2</option><option>SDAU#3</option><option>mixed</option></select>
+        </div>
+      </div>
+      <div class="g2">
+        <div class="fr"><label>샘플링 Hz</label>
+          <input type="number" id="d-hz" value="50" min="0.001" step="any" oninput="calcDCh()">
+        </div>
+        <div class="fr"><label>데이터 비트 수</label>
+          <input type="number" id="d-bits" value="16" min="1" oninput="calcDCh()">
+          <div class="hint" id="d-bh">PCM 워드 길이에 따라 채널 수 결정</div>
+        </div>
+      </div>
+      <div class="fr"><label>PCM 채널 수 (자동)</label>
+        <input type="text" id="d-ch" readonly style="background:#F0F4F8;color:var(--text3)">
+      </div>
+      <div class="fr"><label>비고</label><input type="text" id="d-nt" placeholder="예: 조종면 포지션 피드백"></div>
+    </div>
+    <div class="mf"><button class="btn" onclick="closeDigModal()">취소</button><button class="btn p" onclick="saveDig()">저장</button></div>
+  </div>
+</div>
+
+<!-- BIT Modal -->
+<div class="mo" id="bm">
+  <div class="mw">
+    <div class="mh"><h3 id="bm-title">BIT 데이터 추가</h3><button class="mc2" onclick="closeBitModal()">×</button></div>
+    <div class="mb">
+      <div class="g2">
+        <div class="fr"><label>VL 번호</label><input type="number" id="b-vl" value="1" min="1"></div>
+        <div class="fr"><label>크기 (bytes)</label>
+          <input type="number" id="b-by" value="20" min="2" step="2" oninput="calcBCh()">
+        </div>
+      </div>
+      <div class="fr"><label>PCM 채널 수 (자동)</label>
+        <input type="text" id="b-ch" readonly style="background:#F0F4F8;color:var(--text3)">
+        <div class="hint">= size_bytes ÷ (bits_per_channel ÷ 8)</div>
+      </div>
+      <div class="fr"><label>비고</label><input type="text" id="b-nt" placeholder="예: MIL-STD-1553B BUS A"></div>
+    </div>
+    <div class="mf"><button class="btn" onclick="closeBitModal()">취소</button><button class="btn p" onclick="saveBit()">저장</button></div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────
+//  Constants
+// ─────────────────────────────────────────────────
+const IRIG = { MAX_Z:256, MAX_BITS_C1:8192, MAX_WORDS_C1:1024, MAX_BPW_C1:16, MAX_BR_C1:5e6, MIN_BR:10, SYNC_MIN:16, SYNC_MAX:33 };
+
+const SMETA = {
+  RTD:     {label:'RTD',      color:'#FFD700', hz:50,  pfx:'RTD'},
+  STR3W:   {label:'STR 3W',   color:'#90EE90', hz:50,  pfx:'STR3W'},
+  STR4W:   {label:'STR 4W',   color:'#5DBD5D', hz:50,  pfx:'STR4W'},
+  PRS:     {label:'PRS',      color:'#6495ED', hz:50,  pfx:'PRS'},
+  ACCICP:  {label:'ACC(ICP)', color:'#FF8C00', hz:800, pfx:'ACC_ICP'},
+  ACCDC:   {label:'ACC(DC)',  color:'#FFB347', hz:50,  pfx:'ACC_DC'},
+  VOLTAGE: {label:'VOLTAGE',  color:'#87CEEB', hz:50,  pfx:'VOLT'},
+  TC:      {label:'TC',       color:'#FF69B4', hz:50,  pfx:'TC'},
+  PIEZO:   {label:'PIEZO',    color:'#9370DB', hz:800, pfx:'PIEZO'},
+  ACOUSTIC:{label:'ACOUSTIC', color:'#C0A0FF', hz:800, pfx:'ACOUSTIC'},
+  ETC:     {label:'기타',      color:'#C8C8C8', hz:50,  pfx:'SENSOR'},
+};
+const DMETA = {
+  DISCRETE:{label:'Discrete', color:'#B0C4DE', bits:1},
+  ARINC429:{label:'ARINC 429',color:'#85C1E9', bits:32},
+  '1553B':  {label:'1553B',   color:'#82E0AA', bits:16},
+  RS422:   {label:'RS-422',   color:'#F0B27A', bits:8},
+  LVDT:    {label:'LVDT',     color:'#D7BDE2', bits:16},
+  RESOLVER:{label:'Resolver', color:'#A9CCE3', bits:16},
+  ENCODER: {label:'Encoder',  color:'#A9DFBF', bits:16},
+  DIGITAL: {label:'Digital',  color:'#AED6F1', bits:16},
+};
+
+// ─────────────────────────────────────────────────
+//  State
+// ─────────────────────────────────────────────────
+let sensors=[], digital=[], bitData=[];
+let selS=-1, selD=-1, selB=-1;
+let editSIdx=-1, editDIdx=-1, editBIdx=-1;
+
+// ─────────────────────────────────────────────────
+//  Frame helpers
+// ─────────────────────────────────────────────────
+function F(){
+  return {
+    mhz: parseFloat(document.getElementById('major_hz').value)||50,
+    Z:   parseInt(document.getElementById('minor_count').value)||1,
+    W:   parseInt(document.getElementById('ch_per_minor').value)||1280,
+    B:   parseInt(document.getElementById('bits_per_ch').value)||16,
+    sc:  parseInt(document.getElementById('sync_count').value)||2,
+    sf:  parseInt(document.getElementById('sfid_count').value)||1,
+    sp:  document.getElementById('sync_pattern').value,
+    br:  document.getElementById('bit_repr').value,
+  };
+}
+function bitrate(f){ return f.W*f.B*f.Z*f.mhz; }
+function syncBits(f){
+  const parts=f.sp.split(',').map(s=>s.trim()).filter(Boolean);
+  return parts.length*f.B;
+}
+function pcmClass(f){
+  if(f.W*f.B>IRIG.MAX_BITS_C1||f.W>IRIG.MAX_WORDS_C1||f.B>IRIG.MAX_BPW_C1||bitrate(f)>IRIG.MAX_BR_C1) return 'Class II';
+  return 'Class I';
+}
+function maxSupercom(f){
+  return sensors.reduce((m,s)=>{const sc=Math.round(s.hz/f.mhz);return sc>m?sc:m;},1);
+}
+function calcUsed(f){
+  const su=sensors.reduce((t,s)=>t+s.ch*Math.round(s.hz/f.mhz),0);
+  const du=digital.reduce((t,d)=>t+Math.ceil(d.bits/(f.B*Math.round(d.hz/f.mhz)||1)),0);
+  const bu=bitData.reduce((t,b)=>t+Math.ceil(b.bytes/(f.B/8)),0);
+  return {su,du,bu,total:su+du+bu};
+}
+
+// ─────────────────────────────────────────────────
+//  Bitrate preset
+// ─────────────────────────────────────────────────
+function applyBrPreset(){
+  const v=document.getElementById('br-preset').value;
+  if(!v) return;
+  const f=F();
+  // back-calculate W from target bitrate
+  const targetBr=parseInt(v);
+  const newW=Math.round(targetBr/(f.B*f.Z*f.mhz));
+  document.getElementById('ch_per_minor').value=Math.max(4,newW);
+  document.getElementById('br-custom').value='';
+  onFrameChange();
+}
+function onBrCustom(){
+  const v=parseInt(document.getElementById('br-custom').value)||0;
+  if(v<10) return;
+  document.getElementById('br-preset').value='';
+  const f=F();
+  const newW=Math.round(v/(f.B*f.Z*f.mhz));
+  document.getElementById('ch_per_minor').value=Math.max(4,newW);
+  onFrameChange();
+}
+
+// ─────────────────────────────────────────────────
+//  Sync Pattern
+// ─────────────────────────────────────────────────
+function applySyncPreset(){
+  const sel=document.getElementById('sync-preset');
+  const v=sel.value;
+  if(v==='custom') return;
+  document.getElementById('sync_pattern').value=v;
+  onFrameChange();
+}
+function onSyncCustom(){
+  document.getElementById('sync-preset').value='custom';
+  onFrameChange();
+}
+
+// ─────────────────────────────────────────────────
+//  Main change handler
+// ─────────────────────────────────────────────────
+function onFrameChange(){
+  const f=F();
+  const br=bitrate(f);
+  const fb=f.W*f.B;
+  const avail=(f.W-f.sc-f.sf)*f.Z;
+  const used=calcUsed(f);
+  const maxSc=maxSupercom(f);
+  const slotW=maxSc>1?((f.W-f.sc-f.sf)/maxSc).toFixed(1):'—';
+  const sb=syncBits(f);
+  const cls=pcmClass(f);
+  const pct=avail>0?used.total/avail*100:0;
+  const rem=avail-used.total;
+
+  // Class badge
+  const cb=document.getElementById('cbadge');
+  cb.textContent=cls; cb.className=cls==='Class I'?'c1':'c2';
+
+  // Bitrate display
+  document.getElementById('st-br').textContent=br.toLocaleString();
+  document.getElementById('st-br2').textContent=`(${(br/1e6).toFixed(3)} Mbps)`;
+  document.getElementById('br-hint').textContent=`실제 전송속도: ${br.toLocaleString()} bps`;
+
+  // Stats
+  document.getElementById('st-fb').textContent=fb.toLocaleString();
+  document.getElementById('st-cls').textContent=cls;
+  document.getElementById('st-cls').style.color=cls==='Class I'?'var(--c1)':'var(--c2)';
+  document.getElementById('st-avail').textContent=avail.toLocaleString();
+  document.getElementById('st-used').textContent=used.total.toLocaleString();
+  const re=document.getElementById('st-rem');
+  re.textContent=rem.toLocaleString();
+  re.style.color=rem<0?'var(--err)':pct>90?'var(--warn)':'var(--ok)';
+  document.getElementById('st-pct').textContent=(100-Math.min(100,pct)).toFixed(1);
+  const bar=document.getElementById('st-bar');
+  bar.style.width=Math.min(100,pct)+'%';
+  bar.className='pb-f '+(pct>100?'er':pct>90?'warn':'ok');
+  document.getElementById('st-sc').textContent=maxSc+'×';
+  document.getElementById('st-sw').textContent=slotW;
+
+  // Sync hint
+  const sok=sb>=IRIG.SYNC_MIN&&sb<=IRIG.SYNC_MAX;
+  const sh=document.getElementById('sync-hint');
+  sh.textContent=`총 ${sb} bit — IRIG-106 허용 범위 (16~33 bit) ${sok?'✓':'✗'}`;
+  sh.className=sok?'hint':'hint er';
+  document.getElementById('sync_pattern').className=sok?'':'er';
+
+  // Status bar
+  document.getElementById('sb-br').textContent=br.toLocaleString()+' bps';
+  const sbc=document.getElementById('sb-cls');
+  sbc.textContent=cls; sbc.className='sp2 '+(cls==='Class I'?'c1':'c2');
+
+  validate(f,cls,sb,rem,avail,used,maxSc,slotW);
+  renderMini(f,used,maxSc);
+}
+
+// ─────────────────────────────────────────────────
+//  Validation
+// ─────────────────────────────────────────────────
+function validate(f,cls,sb,rem,avail,used,maxSc,slotW){
+  const msgs=[];
+  if(f.Z>IRIG.MAX_Z) msgs.push({t:'er',m:`Minor Frame 수 ${f.Z} > 256 (IRIG-106 §4.2)`});
+  if(sb<IRIG.SYNC_MIN||sb>IRIG.SYNC_MAX) msgs.push({t:'er',m:`SYNC 패턴 ${sb} bit — 허용 16~33 bit (§4.3)`});
+  if(bitrate(f)<IRIG.MIN_BR) msgs.push({t:'er',m:`전송속도 < 10 bps (§4.8)`});
+  if(rem<0) msgs.push({t:'er',m:`채널 부족: 소요 ${used.total} > 가용 ${avail}`});
+  if(cls==='Class II'){
+    if(f.W*f.B>IRIG.MAX_BITS_C1) msgs.push({t:'warn',m:`Frame 비트 ${(f.W*f.B).toLocaleString()} > 8,192 → <b>Class II</b> (§4.2)`});
+    if(f.W>IRIG.MAX_WORDS_C1) msgs.push({t:'warn',m:`워드 수 ${f.W.toLocaleString()} > 1,024 → <b>Class II</b> (§4.2)`});
+    if(f.B>IRIG.MAX_BPW_C1) msgs.push({t:'warn',m:`워드 길이 ${f.B} bit > 16 → <b>Class II</b> (§4.2)`});
+    if(bitrate(f)>IRIG.MAX_BR_C1) msgs.push({t:'warn',m:`전송속도 ${(bitrate(f)/1e6).toFixed(2)} Mbps > 5 Mbps → <b>Class II</b>, Range 승인 필요 (§4.8)`});
+  }
+  const hasSub=sensors.some(s=>s.hz<f.mhz);
+  if(hasSub&&f.sf===0) msgs.push({t:'warn',m:'서브콤 파라미터 존재 → SFID 권장 (§2.4)'});
+  sensors.forEach(s=>{ const sc=s.hz/f.mhz; if(Math.abs(sc-Math.round(sc))>0.001) msgs.push({t:'er',m:`[${s.name}] Supercom 배수 ${sc.toFixed(3)} — 정수 아님 (§2.5)`}); });
+  if(maxSc>1&&f.Z===1){
+    const sw=(f.W-f.sc-f.sf)/maxSc;
+    if(sw!==Math.floor(sw)) msgs.push({t:'warn',m:`슬롯 폭 ${sw.toFixed(2)} — 정수 아님, 균등 배치 불가 (§2.5)`});
+  }
+  if(msgs.length===0) msgs.push({t:'info',m:'IRIG-106 검사 통과 ✓'});
+  document.getElementById('vmsg').innerHTML=msgs.map(m=>
+    `<div class="vm ${m.t}"><span class="ic">${m.t==='er'?'✕':m.t==='warn'?'⚠':'✓'}</span><span>${m.m}</span></div>`
+  ).join('');
+}
+
+// ─────────────────────────────────────────────────
+//  Mini Preview
+// ─────────────────────────────────────────────────
+function renderMini(f,used,maxSc){
+  const W=Math.min(f.W,80);
+  const sw=maxSc>1?Math.floor((f.W-f.sc-f.sf)/maxSc):0;
+  const row=buildRow(f,0,maxSc).slice(0,W);
+  const wrap=document.getElementById('mp');
+  wrap.style.display='flex';wrap.style.flexWrap='wrap';wrap.style.gap='1px';
+  wrap.innerHTML=row.map((c,i)=>`<div class="mc" style="background:${c.color};${sw>0&&i>0&&i%sw===0?'margin-left:3px':''}" title="${c.label}"></div>`).join('');
+}
+
+// ─────────────────────────────────────────────────
+//  Layout Builder
+// ─────────────────────────────────────────────────
+function buildRow(f,rowIdx,maxSc){
+  const row=[];
+  const push=(l,c)=>row.push({label:l,color:c});
+  for(let i=0;i<f.sc;i++) push(`SYNC[${i+1}]`,'#FF4444');
+  for(let i=0;i<f.sf;i++) push('SFID','#CC0000');
+
+  if(f.Z===1&&maxSc>1){
+    // Slot mode
+    const slotW=Math.floor((f.W-f.sc-f.sf)/maxSc);
+    const superS=sensors.filter(s=>Math.round(s.hz/f.mhz)===maxSc);
+    const slowS =sensors.filter(s=>Math.round(s.hz/f.mhz)<maxSc);
+    const digS  =digital;
+
+    for(let slot=0;slot<maxSc&&row.length<f.W;slot++){
+      const slotStart=row.length;
+      if(slot>0){ for(let i=0;i<f.sc+f.sf&&row.length-slotStart<slotW;i++) push('RSVD','#EBEBEB'); }
+      superS.forEach(s=>{ const m=SMETA[s.type]||SMETA.ETC; for(let i=0;i<s.ch&&row.length<f.W;i++) push(`${s.name}[${slot*s.ch+i+1}]`,m.color); });
+      if(slot===0){
+        slowS.forEach(s=>{ const m=SMETA[s.type]||SMETA.ETC; for(let i=0;i<s.ch&&row.length<f.W;i++) push(`${s.name}[${i+1}]`,m.color); });
+        digS.forEach(d=>{ const m=DMETA[d.type]||DMETA.DIGITAL; const ch=Math.ceil(d.bits/f.B); for(let i=0;i<ch&&row.length<f.W;i++) push(`${d.name}`,m.color); });
+        bitData.forEach(b=>{ const ch=Math.ceil(b.bytes/(f.B/8)); for(let i=0;i<ch&&row.length<f.W;i++) push(`VL${b.vl}`,'#A0A0A0'); });
+      }
+      const slotEnd=(slot+1)*slotW+f.sc+f.sf;
+      while(row.length<Math.min(slotEnd,f.W)) push('RSVD','#F5F5F5');
+    }
+  } else {
+    sensors.forEach(s=>{ const sc=Math.round(s.hz/f.mhz); if(sc<=1&&rowIdx>0) return; const m=SMETA[s.type]||SMETA.ETC; for(let i=0;i<s.ch&&row.length<f.W;i++) push(`${s.name}[${i+1}]`,m.color); });
+    digital.forEach(d=>{ if(rowIdx>0) return; const m=DMETA[d.type]||DMETA.DIGITAL; const ch=Math.ceil(d.bits/f.B); for(let i=0;i<ch&&row.length<f.W;i++) push(d.name,m.color); });
+    bitData.forEach(b=>{ if(rowIdx>0) return; const ch=Math.ceil(b.bytes/(f.B/8)); for(let i=0;i<ch&&row.length<f.W;i++) push(`VL${b.vl}`,'#A0A0A0'); });
+  }
+  while(row.length<f.W) push('RSVD','#F5F5F5');
+  return row;
+}
+
+function buildAllRows(f,maxSc){
+  if(f.Z===1&&maxSc>1){
+    const slotW=Math.floor((f.W-f.sc-f.sf)/maxSc);
+    const rows=[];
+    const fullRow=buildRow(f,0,maxSc);
+    for(let slot=0;slot<maxSc;slot++){
+      const start=slot===0?0:f.sc+f.sf+slot*slotW;
+      const end=start+slotW+(slot===0?f.sc+f.sf:0);
+      rows.push({label:`Slot ${slot}`,cells:fullRow.slice(slot===0?0:f.sc+f.sf+slot*slotW, f.sc+f.sf+(slot+1)*slotW)});
+    }
+    return rows;
+  } else {
+    return Array.from({length:f.Z},(_, i)=>({label:`MF ${i}`,cells:buildRow(f,i,maxSc)}));
+  }
+}
+
+// ─────────────────────────────────────────────────
+//  Channel Assignment Table
+// ─────────────────────────────────────────────────
+function renderChTable(f,maxSc){
+  const allRows=buildAllRows(f,maxSc);
+  const isSlot=f.Z===1&&maxSc>1;
+  const slotW=isSlot?Math.floor((f.W-f.sc-f.sf)/maxSc):0;
+  const MAXCOLS=Math.min(f.W,256); // cap display cols
+  const STEP=f.W>256?Math.ceil(f.W/256):1;
+
+  const fullRow=buildRow(f,0,maxSc);
+  const dispCols=Math.ceil(f.W/STEP);
+
+  // Header
+  let html='<thead><tr><th class="rh">Row / CH→</th>';
+  let c=0;
+  for(let ci=0;ci<dispCols;ci++){
+    const ch=ci*STEP+1;
+    const isSlotBorder=isSlot&&ci>0&&((ci*STEP)%(slotW)===0||(ci*STEP-f.sc-f.sf>0&&(ci*STEP-f.sc-f.sf)%slotW===0));
+    html+=`<th${isSlotBorder?' style="border-left:3px solid #7CAED4"':''}>CH${ch}</th>`;
+  }
+  html+='</tr></thead><tbody>';
+
+  // Rows (cap at 64 rows)
+  const dispRows=Math.min(allRows.length,64);
+  for(let ri=0;ri<dispRows;ri++){
+    const row=allRows[ri];
+    html+=`<tr><td class="rh">${row.label}</td>`;
+    const cells=isSlot?fullRow.slice(ri===0?0:f.sc+f.sf+ri*slotW, ri===0?f.sc+f.sf+slotW:f.sc+f.sf+(ri+1)*slotW) : row.cells;
+    // for non-slot, use full row
+    const srcCells=isSlot?buildRow(f,0,maxSc):row.cells;
+    for(let ci=0;ci<dispCols;ci++){
+      const ci2=ci*STEP;
+      const cell=srcCells[ci2]||{label:'',color:'#F5F5F5'};
+      const isSlotBorder=isSlot&&ci>0&&ci2>0&&(ci2===f.sc+f.sf||((ci2-f.sc-f.sf)%slotW===0&&ci2>f.sc+f.sf));
+      const border=isSlotBorder?'border-left:3px solid #888;':'';
+      const textColor=isTextDark(cell.color)?'#222':'#fff';
+      html+=`<td style="background:${cell.color};color:${textColor};${border}font-size:9px;" title="CH${ci2+1}: ${cell.label}">${shortLabel(cell.label)}</td>`;
+    }
+    html+='</tr>';
+  }
+  if(allRows.length>dispRows) html+=`<tr><td colspan="${dispCols+1}" style="text-align:center;color:var(--text3);padding:6px;font-size:11px">… 총 ${allRows.length}행 중 ${dispRows}행 표시</td></tr>`;
+  html+='</tbody>';
+  document.getElementById('cht').innerHTML=html;
+}
+
+function isTextDark(hex){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return (r*299+g*587+b*114)/1000>160;
+}
+function shortLabel(l){
+  if(!l||l==='RSVD') return '';
+  const p=l.split(/[_\[\]]/);
+  return p.length>1?p[p.length-1]||p[0]:l.length>6?l.slice(0,5)+'…':l;
+}
+
+function renderLegend(){
+  const items=[
+    {label:'SYNC',color:'#FF4444'},{label:'SFID',color:'#CC0000'},
+    ...Object.entries(SMETA).map(([,v])=>({label:v.label,color:v.color})),
+    ...Object.entries(DMETA).map(([,v])=>({label:v.label,color:v.color})),
+    {label:'BIT/VL',color:'#A0A0A0'},{label:'Reserved',color:'#F5F5F5'},
+  ];
+  // deduplicate by color
+  const seen=new Set(); const uniq=items.filter(i=>!seen.has(i.color)&&seen.add(i.color));
+  document.getElementById('leg').innerHTML=uniq.map(i=>
+    `<div class="li"><div class="ld" style="background:${i.color}"></div>${i.label}</div>`
+  ).join('');
+}
+
+// ─────────────────────────────────────────────────
+//  Tab Switch
+// ─────────────────────────────────────────────────
+function switchTab(id,el){
+  document.querySelectorAll('.tp').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('panel-'+id).classList.add('active');
+  el.classList.add('active');
+}
+
+// ─────────────────────────────────────────────────
+//  Sensor Table
+// ─────────────────────────────────────────────────
+function renderSensors(){
+  const f=F();
+  document.getElementById('s-body').innerHTML=sensors.map((s,i)=>{
+    const sc=Math.round(s.hz/f.mhz), pcm=s.ch*sc, m=SMETA[s.type]||SMETA.ETC;
+    return `<tr class="${selS===i?'sel':''}" onclick="selSensor(${i})" ondblclick="editSensorRow(${i})">
+      <td>${i+1}</td>
+      <td><span class="sdot" style="background:${m.color}"></span>${m.label}</td>
+      <td>${s.name}</td><td>${s.hz}</td><td>${s.ch}</td>
+      <td>${sc}×</td><td><strong>${pcm}</strong></td>
+      <td>${s.dau}</td><td style="color:var(--text3)">${s.note}</td>
+    </tr>`;
+  }).join('')||`<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text3)">센서를 추가하세요</td></tr>`;
+  document.getElementById('tc-s').textContent=sensors.length;
+  updSBtns();
+  onFrameChange();
+}
+function selSensor(i){selS=i;renderSensors();}
+function updSBtns(){
+  const h=selS>=0&&selS<sensors.length;
+  document.getElementById('b-es').disabled=!h;
+  document.getElementById('b-ds').disabled=!h;
+  document.getElementById('b-us').disabled=!h||selS===0;
+  document.getElementById('b-ns').disabled=!h||selS===sensors.length-1;
+}
+function moveSensor(d){
+  const i=selS; if(i+d<0||i+d>=sensors.length) return;
+  [sensors[i],sensors[i+d]]=[sensors[i+d],sensors[i]]; selS=i+d; renderSensors();
+}
+function delSensor(){if(selS<0) return; sensors.splice(selS,1); selS=Math.min(selS,sensors.length-1); renderSensors();}
+function editSensor(){editSensorRow(selS);}
+function editSensorRow(i){
+  editSIdx=i; const s=sensors[i];
+  document.getElementById('sm-title').textContent='센서 수정';
+  document.getElementById('m-st').value=s.type;
+  document.getElementById('m-pn').value=s.name;
+  document.getElementById('m-hz').value=s.hz;
+  document.getElementById('m-ch').value=s.ch;
+  document.getElementById('m-dau').value=s.dau;
+  document.getElementById('m-nt').value=s.note;
+  onMHz(); document.getElementById('sm').classList.add('open');
+}
+function openSensorModal(){
+  editSIdx=-1;
+  document.getElementById('sm-title').textContent='센서 추가';
+  document.getElementById('m-st').value='RTD';
+  document.getElementById('m-pn').value='';
+  document.getElementById('m-hz').value=50;
+  document.getElementById('m-ch').value=1;
+  document.getElementById('m-dau').value='MDAU';
+  document.getElementById('m-nt').value='';
+  onStChange(); document.getElementById('sm').classList.add('open');
+}
+function closeSensorModal(){document.getElementById('sm').classList.remove('open');}
+function onStChange(){
+  const m=SMETA[document.getElementById('m-st').value]||SMETA.ETC;
+  if(!document.getElementById('m-pn').value) document.getElementById('m-pn').value=m.pfx+'_1';
+  document.getElementById('m-hz').value=m.hz; onMHz();
+}
+function onMHz(){
+  const hz=parseFloat(document.getElementById('m-hz').value)||50;
+  const mhz=parseFloat(document.getElementById('major_hz').value)||50;
+  const sc=hz/mhz;
+  document.getElementById('m-sc').textContent=`Supercom: ${sc%1===0?sc:sc.toFixed(2)}× ${sc%1!==0?'⚠ 정수 아님':''}`;
+}
+function saveSensor(){
+  const s={type:document.getElementById('m-st').value,name:document.getElementById('m-pn').value||'SENSOR',
+    hz:parseFloat(document.getElementById('m-hz').value)||50,ch:parseInt(document.getElementById('m-ch').value)||1,
+    dau:document.getElementById('m-dau').value,note:document.getElementById('m-nt').value};
+  if(editSIdx>=0) sensors[editSIdx]=s; else sensors.push(s);
+  closeSensorModal(); renderSensors();
+}
+
+// ─────────────────────────────────────────────────
+//  Digital Data Table
+// ─────────────────────────────────────────────────
+function renderDigital(){
+  const f=F();
+  document.getElementById('d-body').innerHTML=digital.map((d,i)=>{
+    const m=DMETA[d.type]||DMETA.DIGITAL;
+    const ch=Math.ceil(d.bits/f.B);
+    return `<tr class="${selD===i?'sel':''}" onclick="selDig(${i})" ondblclick="editDigRow(${i})">
+      <td>${d.name}</td>
+      <td><span class="sdot" style="background:${m.color}"></span>${m.label}</td>
+      <td>${d.hz}</td><td>${d.bits}</td><td><strong>${ch}</strong></td>
+      <td>${d.dau}</td><td style="color:var(--text3)">${d.note}</td>
+    </tr>`;
+  }).join('')||`<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text3)">디지털 데이터를 추가하세요</td></tr>`;
+  document.getElementById('tc-d').textContent=digital.length;
+  document.getElementById('b-ed').disabled=selD<0;
+  document.getElementById('b-dd').disabled=selD<0;
+  onFrameChange();
+}
+function selDig(i){selD=i;renderDigital();}
+function delDig(){if(selD<0) return; digital.splice(selD,1); selD=Math.min(selD,digital.length-1); renderDigital();}
+function editDig(){editDigRow(selD);}
+function editDigRow(i){
+  editDIdx=i; const d=digital[i];
+  document.getElementById('dm-title').textContent='디지털 데이터 수정';
+  document.getElementById('d-name').value=d.name;
+  document.getElementById('d-type').value=d.type;
+  document.getElementById('d-hz').value=d.hz;
+  document.getElementById('d-bits').value=d.bits;
+  document.getElementById('d-dau').value=d.dau;
+  document.getElementById('d-nt').value=d.note;
+  calcDCh(); document.getElementById('dm').classList.add('open');
+}
+function openDigModal(){
+  editDIdx=-1;
+  document.getElementById('dm-title').textContent='디지털 데이터 추가';
+  document.getElementById('d-name').value='';
+  document.getElementById('d-type').value='DISCRETE';
+  document.getElementById('d-hz').value=50;
+  document.getElementById('d-bits').value=1;
+  document.getElementById('d-dau').value='MDAU';
+  document.getElementById('d-nt').value='';
+  onDtChange(); document.getElementById('dm').classList.add('open');
+}
+function closeDigModal(){document.getElementById('dm').classList.remove('open');}
+function onDtChange(){
+  const m=DMETA[document.getElementById('d-type').value]||DMETA.DIGITAL;
+  document.getElementById('d-bits').value=m.bits; calcDCh();
+}
+function calcDCh(){
+  const bits=parseInt(document.getElementById('d-bits').value)||1;
+  const bpch=parseInt(document.getElementById('bits_per_ch').value)||16;
+  document.getElementById('d-ch').value=Math.ceil(bits/bpch)+' CH';
+}
+function saveDig(){
+  const d={name:document.getElementById('d-name').value||'DIGITAL',type:document.getElementById('d-type').value,
+    hz:parseFloat(document.getElementById('d-hz').value)||50,bits:parseInt(document.getElementById('d-bits').value)||16,
+    dau:document.getElementById('d-dau').value,note:document.getElementById('d-nt').value};
+  if(editDIdx>=0) digital[editDIdx]=d; else digital.push(d);
+  closeDigModal(); renderDigital();
+}
+
+// ─────────────────────────────────────────────────
+//  BIT Table
+// ─────────────────────────────────────────────────
+function renderBits(){
+  const f=F();
+  document.getElementById('b-body').innerHTML=bitData.map((b,i)=>{
+    const ch=Math.ceil(b.bytes/(f.B/8));
+    return `<tr class="${selB===i?'sel':''}" onclick="selBit(${i})" ondblclick="editBitRow(${i})">
+      <td>VL${b.vl}</td><td>${b.bytes}</td><td><strong>${ch}</strong></td>
+      <td style="color:var(--text3)">${b.note}</td>
+    </tr>`;
+  }).join('')||`<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text3)">BIT 데이터를 추가하세요</td></tr>`;
+  document.getElementById('tc-b').textContent=bitData.length;
+  document.getElementById('b-eb').disabled=selB<0;
+  document.getElementById('b-db').disabled=selB<0;
+  onFrameChange();
+}
+function selBit(i){selB=i;renderBits();}
+function delBit(){if(selB<0) return; bitData.splice(selB,1); selB=Math.min(selB,bitData.length-1); renderBits();}
+function editBit(){editBitRow(selB);}
+function editBitRow(i){
+  editBIdx=i; const b=bitData[i];
+  document.getElementById('bm-title').textContent='BIT 데이터 수정';
+  document.getElementById('b-vl').value=b.vl;
+  document.getElementById('b-by').value=b.bytes;
+  document.getElementById('b-nt').value=b.note;
+  calcBCh(); document.getElementById('bm').classList.add('open');
+}
+function openBitModal(){
+  editBIdx=-1;
+  document.getElementById('bm-title').textContent='BIT 데이터 추가';
+  document.getElementById('b-vl').value=bitData.length+1;
+  document.getElementById('b-by').value=20;
+  document.getElementById('b-nt').value='';
+  calcBCh(); document.getElementById('bm').classList.add('open');
+}
+function closeBitModal(){document.getElementById('bm').classList.remove('open');}
+function calcBCh(){
+  const bytes=parseInt(document.getElementById('b-by').value)||2;
+  const bpch=parseInt(document.getElementById('bits_per_ch').value)||16;
+  document.getElementById('b-ch').value=Math.ceil(bytes/(bpch/8))+' CH';
+}
+function saveBit(){
+  const b={vl:parseInt(document.getElementById('b-vl').value)||1,bytes:parseInt(document.getElementById('b-by').value)||2,note:document.getElementById('b-nt').value};
+  if(editBIdx>=0) bitData[editBIdx]=b; else bitData.push(b);
+  closeBitModal(); renderBits();
+}
+
+// ─────────────────────────────────────────────────
+//  Generate
+// ─────────────────────────────────────────────────
+function doGenerate(){
+  const f=F(); const used=calcUsed(f); const avail=(f.W-f.sc-f.sf)*f.Z;
+  if(used.total>avail){ setMsg('✕ 오류: 채널 부족 — 채널표 생성 불가'); return; }
+  setMsg('⏳ 채널표 생성 중...');
+  setTimeout(()=>{
+    setMsg('✓ 채널표 생성 완료 → ~/Desktop/output_channel_table.xlsx');
+    const br=bitrate(f); const rem=avail-used.total; const pct=avail>0?used.total/avail*100:0;
+    const maxSc=maxSupercom(f); const cls=pcmClass(f);
+    document.getElementById('res-empty').style.display='none';
+    document.getElementById('res-content').style.display='block';
+    document.getElementById('rg').innerHTML=[
+      {l:'전송 속도',v:(br/1000).toFixed(0),u:'kbps'},
+      {l:'PCM 클래스',v:cls,u:''},
+      {l:'비트 표현',v:f.br,u:''},
+      {l:'SYNC 패턴',v:syncBits(f)+' bit',u:''},
+      {l:'가용 채널',v:avail.toLocaleString(),u:'CH'},
+      {l:'센서 채널',v:used.su.toLocaleString(),u:'CH'},
+      {l:'디지털 채널',v:used.du.toLocaleString(),u:'CH'},
+      {l:'BIT 채널',v:used.bu.toLocaleString(),u:'CH'},
+      {l:'잔여 채널',v:rem.toLocaleString(),u:`CH (${(100-pct).toFixed(1)}%)`},
+      {l:'Max Supercom',v:maxSc+'×',u:maxSc>1?`@ ${maxSc*f.mhz} Hz`:''},
+    ].map(c=>`<div class="rc"><div class="rl">${c.l}</div><div class="rv">${c.v} <span class="ru">${c.u}</span></div></div>`).join('');
+    renderLegend();
+    renderChTable(f,maxSc);
+    // switch to result tab
+    switchTab('result',document.querySelector('.tab:nth-child(4)'));
+  },500);
+}
+
+function setMsg(m){document.getElementById('s-msg').textContent=m;}
+
+// ─────────────────────────────────────────────────
+//  Sample Load
+// ─────────────────────────────────────────────────
+function loadSample(){
+  document.getElementById('major_hz').value=50;
+  document.getElementById('minor_count').value=1;
+  document.getElementById('ch_per_minor').value=1280;
+  document.getElementById('bits_per_ch').value=16;
+  document.getElementById('sync_count').value=2;
+  document.getElementById('sfid_count').value=1;
+  document.getElementById('sync_pattern').value='0xFAF3, 0x3400';
+  document.getElementById('sync-preset').value='0xFAF3,0x3400';
+  document.getElementById('bit_repr').value='NRZ-L';
+  document.getElementById('br-preset').value='1024000';
+
+  sensors=[
+    {type:'ACCICP', name:'MDAU_ACC_ICP', hz:800,ch:12,dau:'MDAU',  note:''},
+    {type:'ACCICP', name:'SDAU1_ACC_ICP',hz:800,ch:11,dau:'SDAU#1',note:''},
+    {type:'PIEZO',  name:'SDAU1_PIEZO',  hz:800,ch:10,dau:'SDAU#1',note:''},
+    {type:'PIEZO',  name:'SDAU2_PIEZO',  hz:800,ch:10,dau:'SDAU#2',note:''},
+    {type:'RTD',    name:'MDAU_RTD',     hz:50, ch:32,dau:'MDAU',  note:'PT100'},
+    {type:'RTD',    name:'SDAU1_RTD',    hz:50, ch:16,dau:'SDAU#1',note:''},
+    {type:'RTD',    name:'SDAU2_RTD',    hz:50, ch:16,dau:'SDAU#2',note:''},
+    {type:'STR3W',  name:'MDAU_STR3W',   hz:50, ch:16,dau:'MDAU',  note:''},
+    {type:'STR4W',  name:'MDAU_STR4W',   hz:50, ch:12,dau:'MDAU',  note:''},
+    {type:'PRS',    name:'MDAU_PRS',     hz:50, ch:24,dau:'MDAU',  note:''},
+    {type:'ACCDC',  name:'MDAU_ACC_DC',  hz:50, ch:12,dau:'MDAU',  note:''},
+    {type:'VOLTAGE',name:'MDAU_VOLT',    hz:50, ch:12,dau:'MDAU',  note:''},
+    {type:'TC',     name:'MDAU_TC',      hz:50, ch:14,dau:'MDAU',  note:''},
+  ];
+  digital=[
+    {name:'ARINC429_BUS1',type:'ARINC429',hz:50,bits:256,dau:'MDAU',  note:'항법 버스 (8 labels)'},
+    {name:'DISCRETE_SYS', type:'DISCRETE',hz:50,bits:16, dau:'MDAU',  note:'이산신호 16채널'},
+    {name:'ENCODER_POS',  type:'ENCODER', hz:50,bits:16, dau:'SDAU#1',note:'조종면 포지션'},
+  ];
+  bitData=[
+    {vl:1,bytes:20,note:'MIL-STD-1553B BUS A'},
+    {vl:2,bytes:20,note:'MIL-STD-1553B BUS B'},
+    {vl:3,bytes:32,note:'ENG BUS'},
+    {vl:4,bytes:20,note:'NAV BUS'},
+    {vl:5,bytes:12,note:'CTRL BUS'},
+    {vl:6,bytes:16,note:'ECS BUS'},
+    {vl:7,bytes:10,note:'MISC'},
+  ];
+  selS=-1;selD=-1;selB=-1;
+  renderSensors();renderDigital();renderBits();
+  setMsg('샘플 설정 로드 완료 (1단 DAU 기준)');
+}
+
+// ─────────────────────────────────────────────────
+//  Keyboard
+// ─────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape') document.querySelectorAll('.mo.open').forEach(m=>m.classList.remove('open'));
+});
+
+// Init
+loadSample();
+</script>
+</body>
+</html>
