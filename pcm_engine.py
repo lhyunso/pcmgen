@@ -232,27 +232,10 @@ def allocate_channels(config: dict) -> dict:
     # ── Determine max supercom ratio ──
     max_sc = max((p["supercom"] for p in params), default=1)
 
-    # ── Build minor frame layout ──
-    # Each minor frame is an array of W cells
-    # Cell = {name, type, category, color, ...} or None (reserved)
-
-    if max_sc > 1 and Z == 1:
-        # ── Supercommutation mode: slot-based layout ──
-        result_frames = _allocate_supercom(
-            W, data_words, overhead, sync_count, sfid_count,
-            max_sc, params, frame_hz
-        )
-    elif Z > 1:
-        # ── Multi-minor-frame (subcommutation possible) ──
-        result_frames = _allocate_multi_minor(
-            W, Z, data_words, overhead, sync_count, sfid_count,
-            params, mfr
-        )
-    else:
-        # ── Simple single frame, no supercom ──
-        result_frames = _allocate_simple(
-            W, data_words, overhead, sync_count, sfid_count, params
-        )
+    # ── Build minor frame layout (unified allocation) ──
+    result_frames = _allocate_frames(
+        W, Z, data_words, overhead, sync_count, sfid_count, max_sc, params
+    )
 
     # ── Calculate statistics (per minor frame) ──
     total_avail = data_words  # available data words per minor frame
@@ -292,172 +275,118 @@ def allocate_channels(config: dict) -> dict:
     }
 
 
-def _allocate_supercom(W, data_words, overhead, sync_count, sfid_count,
-                       max_sc, params, frame_hz):
+def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
+                     max_sc, params):
     """
-    Slot-based allocation for supercommutated frames (Z=1, max_sc>1).
+    Unified frame allocation for all modes (IRIG-106 Ch.4 compliant).
 
-    IRIG-106 requires supercommutated samples to be uniformly spaced
-    throughout the minor frame. We divide the data area into max_sc slots
-    and place each supercommutated channel once per slot (evenly spaced).
-    Normal (1x) channels are placed only in the first slot area.
+    Supercommutation (sc > 1):
+      - Frame data area divided into max_sc equal slots.
+      - Each copy of a supercom channel is placed in one slot,
+        evenly spaced across the frame.
+      - If a target slot is full, the copy is placed in the nearest
+        available position — channels are NEVER silently dropped.
+
+    Subcommutation (subcom_ratio > 1, requires Z > 1):
+      - Each subcom word position is shared by multiple parameters
+        appearing at equal intervals across minor frames (every R frames).
+      - Subcom positions are taken from the same available-position pool
+        as normal params, so they naturally spread throughout the frame
+        rather than clustering at the end.
+
+    Both rules apply simultaneously when Z > 1 and max_sc > 1.
     """
-    slot_width = data_words // max_sc
-
-    # Separate unique channels by supercom rate
-    # super_params: channels that appear in EVERY slot (sc == max_sc)
-    # mid_params: channels with intermediate supercom (1 < sc < max_sc)
-    # normal_params: channels that appear only once (sc == 1)
-    super_params = [p for p in params if p["supercom"] == max_sc]
-    normal_params = [p for p in params if p["supercom"] == 1]
-    mid_params = [p for p in params if 1 < p["supercom"] < max_sc]
-
-    # Sort within groups by DAU for grouped wiring
-    super_params.sort(key=lambda p: (p["dau"], p["type"], p["name"]))
-    normal_params.sort(key=lambda p: (p["dau"], p["type"], p["name"]))
-    mid_params.sort(key=lambda p: (-p["supercom"], p["dau"], p["name"]))
-
-    # Build frame
-    frame = [None] * W
-
-    # Place SYNC at beginning
-    for i in range(sync_count):
-        frame[i] = _make_cell("SYNC", "SYNC", "system", "#FF4444")
-    # Place SFID after sync
-    for i in range(sfid_count):
-        frame[sync_count + i] = _make_cell("SFID", "SFID", "system", "#CC0000")
-
-    # ── Place supercommutated parameters: same channels in every slot ──
-    # Each super_param channel appears once in each of the max_sc slots,
-    # at the same relative position within each slot (evenly spaced).
-    for slot_idx in range(max_sc):
-        slot_start = overhead + slot_idx * slot_width
-        pos = slot_start
-        for p in super_params:
-            if pos < min(slot_start + slot_width, W) and frame[pos] is None:
-                cell = _make_cell_from_param(p)
-                cell["slot"] = slot_idx
-                frame[pos] = cell
-                pos += 1
-
-    # ── Place mid-rate supercom parameters ──
-    # For a param with supercom=N where N < max_sc,
-    # place it in N evenly-spaced slots
-    for p in mid_params:
-        sc = p["supercom"]
-        slot_step = max_sc // sc  # e.g., max_sc=16, sc=4 -> place in slots 0,4,8,12
-        for si in range(sc):
-            target_slot = si * slot_step
-            slot_start = overhead + target_slot * slot_width
-            # Find empty position within this slot
-            pos = _find_next_empty(frame, slot_start, min(slot_start + slot_width, W))
-            if pos is not None:
-                cell = _make_cell_from_param(p)
-                cell["slot"] = target_slot
-                frame[pos] = cell
-
-    # ── Place normal (1x) parameters only once (in first slot area) ──
-    for p in normal_params:
-        # Place in the first slot area, after supercom params
-        slot_start = overhead
-        slot_end = min(overhead + slot_width, W)
-        pos = _find_next_empty(frame, slot_start, slot_end)
-        if pos is None:
-            # If first slot is full, find any empty position
-            pos = _find_next_empty(frame, overhead, W)
-        if pos is not None:
-            frame[pos] = _make_cell_from_param(p)
-
-    # ── Fill remaining with RESERVED ──
-    for i in range(W):
-        if frame[i] is None:
-            frame[i] = _make_cell("RSVD", "RSVD", "reserved", "#F5F5F5")
-
-    return [{
-        "label": "Minor Frame",
-        "cells": frame,
-        "slot_width": slot_width,
-        "max_sc": max_sc,
-    }]
-
-
-def _allocate_multi_minor(W, Z, data_words, overhead, sync_count, sfid_count,
-                          params, mfr):
-    """
-    Allocation across Z minor frames with supercom and subcommutation.
-
-    IRIG-106 subcommutation:
-    - SFID counter (0..Z-1) identifies each minor frame
-    - Subcom word positions hold different parameters per SFID
-    - A param with subcom_ratio=R appears once every R minor frames
-    - Multiple subcom params share a word position across Z frames
-
-    Layout per minor frame:
-    [SYNC...][SFID...][supercom words...][normal words...][subcom positions...][RSVD...]
-    """
-    # Separate params by mode
     super_params = [p for p in params if p["supercom"] > 1]
-    normal_params = [p for p in params if p["supercom"] == 1 and p.get("subcom_ratio", 0) == 0]
+    normal_params = [p for p in params if p["supercom"] == 1
+                     and p.get("subcom_ratio", 0) == 0]
     subcom_params = [p for p in params if p.get("subcom_ratio", 0) > 0]
 
-    # Sort for deterministic placement
     super_params.sort(key=lambda p: (-p["supercom"], p["dau"], p["type"], p["name"]))
     normal_params.sort(key=lambda p: (p["dau"], p["type"], p["name"]))
     subcom_params.sort(key=lambda p: (p["subcom_ratio"], p["dau"], p["name"]))
 
-    # ── Assign fixed word positions (same in every minor frame) ──
-    pos = overhead
+    # Slot width for equal supercom spacing
+    # (data_words // max_sc guarantees each copy lands in its own slot)
+    slot_width = data_words // max_sc if max_sc > 1 else data_words
 
-    # Supercom: each param placed sc times sequentially
-    super_positions = {}
+    # Boolean availability map — True means the word position is free
+    avail = [False] * W
+    for i in range(overhead, W):
+        avail[i] = True
+
+    # fixed[word_pos] = cell — identical in every minor frame
+    fixed: dict[int, dict] = {}
+
+    def claim(pos, cell):
+        fixed[pos] = cell
+        avail[pos] = False
+
+    def first_avail(start, end):
+        for i in range(start, min(end, W)):
+            if avail[i]:
+                return i
+        return None
+
+    # ── Supercom: slot-based equal spacing ──
+    # A param with sc copies needs one copy in each of sc target slots.
+    # target_slots are sc evenly-spaced indices out of max_sc.
     for p in super_params:
-        positions = []
-        for _ in range(p["supercom"]):
-            if pos < W:
-                positions.append(pos)
-                pos += 1
-        super_positions[id(p)] = positions
+        sc = p["supercom"]
+        target_slots = [round(i * max_sc / sc) for i in range(sc)]
+        for slot_idx in target_slots:
+            slot_start = overhead + slot_idx * slot_width
+            slot_end   = min(slot_start + slot_width, W)
+            pos = first_avail(slot_start, slot_end)
+            if pos is None:
+                # Target slot full — find nearest available in whole data area
+                pos = first_avail(overhead, W)
+            if pos is not None:
+                claim(pos, _make_cell_from_param(p))
 
-    # Normal: each param placed once
-    normal_positions = {}
+    # ── Normal (1×): fill slot 0, overflow to anywhere ──
+    slot0_end = min(overhead + slot_width, W)
     for p in normal_params:
-        if pos < W:
-            normal_positions[id(p)] = pos
-            pos += 1
+        pos = first_avail(overhead, slot0_end)
+        if pos is None:
+            pos = first_avail(overhead, W)
+        if pos is not None:
+            claim(pos, _make_cell_from_param(p))
 
-    # ── Schedule subcom params into shared word positions ──
-    # Each position has Z slots (one per minor frame).
-    # A param with subcom_ratio=R occupies every R-th slot.
-    subcom_schedule = []  # list of {position: int, slots: {frame_idx: param}}
+    # ── Subcom: schedule into remaining available positions ──
+    # Available positions are spread throughout the frame at this point,
+    # so subcom slots will be interleaved — not clustered at the end.
+    # Each position holds Z "slots" (one per minor frame); params with
+    # ratio=R occupy every R-th slot (equal frame-spacing).
+    subcom_schedule: list[dict] = []  # [{position, slots:{mf_idx: param}}]
 
     for p in subcom_params:
         ratio = p["subcom_ratio"]
         placed = False
 
-        # Try to fit into an existing subcom position
+        # Try to share an existing subcom position
         for sched in subcom_schedule:
-            # Find a phase offset where this param doesn't collide
             for offset in range(ratio):
-                appearances = list(range(offset, Z, ratio))
-                if all(f not in sched["slots"] for f in appearances):
-                    for f in appearances:
+                frames_hit = list(range(offset, Z, ratio))
+                if all(f not in sched["slots"] for f in frames_hit):
+                    for f in frames_hit:
                         sched["slots"][f] = p
                     placed = True
                     break
             if placed:
                 break
 
-        if not placed and pos < W:
-            # Create a new subcom position
-            sched = {"position": pos, "slots": {}}
-            for offset in range(ratio):
-                appearances = list(range(offset, Z, ratio))
-                if all(f not in sched["slots"] for f in appearances):
-                    for f in appearances:
-                        sched["slots"][f] = p
-                    break
-            subcom_schedule.append(sched)
-            pos += 1
+        if not placed:
+            pos = first_avail(overhead, W)
+            if pos is not None:
+                sched: dict = {"position": pos, "slots": {}}
+                for offset in range(ratio):
+                    frames_hit = list(range(offset, Z, ratio))
+                    if all(f not in sched["slots"] for f in frames_hit):
+                        for f in frames_hit:
+                            sched["slots"][f] = p
+                        break
+                subcom_schedule.append(sched)
+                avail[pos] = False
 
     # ── Build Z minor frames ──
     frames = []
@@ -467,76 +396,43 @@ def _allocate_multi_minor(W, Z, data_words, overhead, sync_count, sfid_count,
         # SYNC
         for i in range(sync_count):
             frame[i] = _make_cell("SYNC", "SYNC", "system", "#FF4444")
-        # SFID
+        # SFID (value = minor frame index when Z > 1)
         for i in range(sfid_count):
             cell = _make_cell("SFID", "SFID", "system", "#CC0000")
-            cell["note"] = f"MF#{mf_idx}"
+            if Z > 1:
+                cell["note"] = f"MF#{mf_idx}"
             frame[sync_count + i] = cell
 
-        # Supercom (same positions in every frame)
-        for p in super_params:
-            for word_pos in super_positions.get(id(p), []):
-                frame[word_pos] = _make_cell_from_param(p)
+        # Fixed params — identical in every minor frame
+        for pos, cell in fixed.items():
+            frame[pos] = dict(cell)
 
-        # Normal (same positions in every frame)
-        for p in normal_params:
-            word_pos = normal_positions.get(id(p))
-            if word_pos is not None:
-                frame[word_pos] = _make_cell_from_param(p)
-
-        # Subcom (different params per frame based on SFID)
+        # Subcom — different param per minor frame, same word position
         for sched in subcom_schedule:
             word_pos = sched["position"]
             p = sched["slots"].get(mf_idx)
-            if p:
+            if p is not None:
                 cell = _make_cell_from_param(p)
                 cell["subcom"] = True
                 cell["subcom_ratio"] = p["subcom_ratio"]
                 frame[word_pos] = cell
             else:
-                # Unused slot in this frame
-                frame[word_pos] = _make_cell("RSVD", "RSVD", "reserved", "#F5F5F5",
-                                              note="subcom spare")
+                frame[word_pos] = _make_cell("RSVD", "RSVD", "reserved",
+                                              "#F5F5F5", note="subcom spare")
 
-        # Fill remaining with RESERVED
+        # Fill gaps with RESERVED
         for i in range(W):
             if frame[i] is None:
                 frame[i] = _make_cell("RSVD", "RSVD", "reserved", "#F5F5F5")
 
-        frames.append({
-            "label": f"MF {mf_idx} (SFID={mf_idx})",
-            "cells": frame,
-        })
+        label = f"MF {mf_idx} (SFID={mf_idx})" if Z > 1 else "Minor Frame"
+        entry: dict = {"label": label, "cells": frame}
+        if max_sc > 1:
+            entry["slot_width"] = slot_width
+            entry["max_sc"] = max_sc
+        frames.append(entry)
 
     return frames
-
-
-def _allocate_simple(W, data_words, overhead, sync_count, sfid_count, params):
-    """Simple sequential allocation for single frame without supercom."""
-    frame = [None] * W
-
-    # SYNC
-    for i in range(sync_count):
-        frame[i] = _make_cell("SYNC", "SYNC", "system", "#FF4444")
-    # SFID
-    for i in range(sfid_count):
-        frame[sync_count + i] = _make_cell("SFID", "SFID", "system", "#CC0000")
-
-    # Sort by DAU then type for grouping
-    sorted_params = sorted(params, key=lambda p: (p["dau"], p["type"], p["name"]))
-
-    pos = overhead
-    for p in sorted_params:
-        if pos < W:
-            frame[pos] = _make_cell_from_param(p)
-            pos += 1
-
-    # Fill RESERVED
-    for i in range(W):
-        if frame[i] is None:
-            frame[i] = _make_cell("RSVD", "RSVD", "reserved", "#F5F5F5")
-
-    return [{"label": "Minor Frame", "cells": frame}]
 
 
 # ── Color maps ──
@@ -581,15 +477,6 @@ def _make_cell_from_param(param):
         "supercom": param.get("supercom", 1),
         "note": param.get("note", ""),
     }
-
-
-def _find_nearest_empty(frame, target, W):
-    """Find the nearest empty position to target."""
-    for offset in range(W):
-        for pos in [target + offset, target - offset]:
-            if 0 <= pos < W and frame[pos] is None:
-                return pos
-    return None
 
 
 def _find_next_empty(frame, start, end):

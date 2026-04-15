@@ -869,143 +869,132 @@ function superSlots(sc, numSlots){
 function getDistMode(){ return document.getElementById('dist_mode').value; }
 
 function buildRow(f,rowIdx,maxSc){
-  const mode=getDistMode(); // 'even' or 'compact'
   const W=f.W;
-  const slotW=maxSc>1?Math.floor(W/maxSc):W; // e.g., 1280/16=80
-  const frame=new Array(W).fill(null); // entire frame position array
+  const overhead=f.sc+f.sf;
+  const dataWords=W-overhead;
+  const slotW=maxSc>1?Math.floor(dataWords/maxSc):dataWords;
 
-  // 1. SYNC + SFID at start of frame (slot 0 only)
-  let cur=0;
-  for(let i=0;i<f.sc;i++) frame[cur++]={label:`SYNC[${i+1}]`,color:'#FF4444',subcom:false};
-  for(let i=0;i<f.sf;i++) frame[cur++]={label:'SFID',color:'#CC0000',subcom:false};
+  const frame=new Array(W).fill(null);
 
-  // 2. Categorize sensors
-  const superS=[], normS=[];
+  // 1. SYNC + SFID
+  for(let i=0;i<f.sc;i++) frame[i]={label:`SYNC[${i+1}]`,color:'#FF4444',subcom:false};
+  for(let i=0;i<f.sf;i++) frame[f.sc+i]={label:'SFID',color:'#CC0000',subcom:false};
+
+  // Availability map (mirrors Python _allocate_frames logic)
+  const avail=frame.map((_,i)=>i>=overhead);
+  function firstAvail(start,end){
+    for(let i=start;i<Math.min(end,W);i++) if(avail[i]) return i;
+    return -1;
+  }
+  function claim(pos,item){ frame[pos]=item; avail[pos]=false; }
+
+  // 2. Supercom: slot-based equal spacing — never drops channels
+  //    target_slots = sc evenly-spaced slot indices out of maxSc
+  const allSuper=[];
   sensors.forEach(s=>{
-    if(f.Z>1 && isSubcom(s.hz,f)) return;
-    const sc_=supercom(s.hz,f);
-    sc_>1 ? superS.push({s,sc:sc_}) : normS.push(s);
+    if(f.Z>1&&isSubcom(s.hz,f)) return;
+    const sc_=supercom(s.hz,f); if(sc_<=1) return;
+    const m=SMETA[s.type]||SMETA.ETC;
+    for(let i=0;i<s.ch;i++) allSuper.push({sc:sc_,item:{label:s.ch>1?`${s.name}[${i+1}]`:s.name,color:m.color,subcom:false}});
   });
-  const superD=[], normD=[];
   digital.forEach(d=>{
-    if(f.Z>1 && isSubcom(d.hz,f)) return;
-    const sc_=supercom(d.hz,f);
-    sc_>1 ? superD.push({d,sc:sc_}) : normD.push(d);
+    if(f.Z>1&&isSubcom(d.hz,f)) return;
+    const sc_=supercom(d.hz,f); if(sc_<=1) return;
+    const m=DMETA[d.type]||DMETA.DIGITAL;
+    const ch=Math.ceil(d.bits/f.B);
+    for(let i=0;i<ch;i++) allSuper.push({sc:sc_,item:{label:ch>1?`${d.name}[${i+1}]`:d.name,color:m.color,subcom:false}});
+  });
+  allSuper.sort((a,b)=>b.sc-a.sc);
+  allSuper.forEach(({sc,item})=>{
+    const tSlots=Array.from({length:sc},(_,i)=>Math.round(i*maxSc/sc));
+    tSlots.forEach(si=>{
+      const ss=overhead+si*slotW, se=ss+slotW;
+      let pos=firstAvail(ss,se);
+      if(pos<0) pos=firstAvail(overhead,W); // slot full → nearest available
+      if(pos>=0) claim(pos,{...item});
+    });
   });
 
-  // 3. Place supercom: first copy in slot 0, then replicate at exact slotW intervals
-  //    ACC_1[1] at pos P → also at P+80, P+160, ..., P+80*15 (for 16x)
-  //    4x supercom → spacing = W/4 = 320 → at P, P+320, P+640, P+960
-  superS.forEach(({s,sc:sc_})=>{
+  // 3. Normal (1×) params: fill slot 0, overflow to anywhere
+  const slot0End=overhead+slotW;
+  sensors.forEach(s=>{
+    if(f.Z>1&&isSubcom(s.hz,f)) return;
+    if(supercom(s.hz,f)>1) return;
     const m=SMETA[s.type]||SMETA.ETC;
-    const spacing=Math.floor(W/sc_); // distance between same channel copies
     for(let i=0;i<s.ch;i++){
-      // Find next available position in slot 0 for first copy
-      while(cur<slotW&&frame[cur]!==null) cur++;
-      if(cur>=slotW) return;
-      // Place first copy and replicate at exact spacing
-      for(let k=0;k<sc_;k++){
-        const pos=cur+k*spacing;
-        if(pos<W) frame[pos]={label:`${s.name}[${i+1}]`,color:m.color,subcom:false};
-      }
-      cur++;
+      let pos=firstAvail(overhead,slot0End);
+      if(pos<0) pos=firstAvail(overhead,W);
+      if(pos>=0) claim(pos,{label:s.ch>1?`${s.name}[${i+1}]`:s.name,color:m.color,subcom:false});
     }
   });
-  superD.forEach(({d,sc:sc_})=>{
+  digital.forEach(d=>{
+    if(f.Z>1&&isSubcom(d.hz,f)) return;
+    if(supercom(d.hz,f)>1) return;
     const m=DMETA[d.type]||DMETA.DIGITAL;
     const ch=Math.ceil(d.bits/f.B);
-    const spacing=Math.floor(W/sc_);
     for(let i=0;i<ch;i++){
-      while(cur<slotW&&frame[cur]!==null) cur++;
-      if(cur>=slotW) return;
-      for(let k=0;k<sc_;k++){
-        const pos=cur+k*spacing;
-        if(pos<W) frame[pos]={label:d.name,color:m.color,subcom:false};
-      }
-      cur++;
+      let pos=firstAvail(overhead,slot0End);
+      if(pos<0) pos=firstAvail(overhead,W);
+      if(pos>=0) claim(pos,{label:ch>1?`${d.name}[${i+1}]`:d.name,color:m.color,subcom:false});
     }
-  });
-
-  // 4. Build normal + BIT items
-  const normItems=[];
-  normS.forEach(s=>{
-    const m=SMETA[s.type]||SMETA.ETC;
-    for(let i=0;i<s.ch;i++) normItems.push({label:`${s.name}[${i+1}]`,color:m.color,subcom:false});
-  });
-  normD.forEach(d=>{
-    const m=DMETA[d.type]||DMETA.DIGITAL;
-    const ch=Math.ceil(d.bits/f.B);
-    for(let i=0;i<ch;i++) normItems.push({label:d.name,color:m.color,subcom:false});
   });
   bitData.forEach(b=>{
     const ch=Math.ceil(b.bytes/(f.B/8));
-    for(let i=0;i<ch;i++) normItems.push({label:`VL${b.vl}`,color:'#A0A0A0',subcom:false});
+    for(let i=0;i<ch;i++){
+      let pos=firstAvail(overhead,slot0End);
+      if(pos<0) pos=firstAvail(overhead,W);
+      if(pos>=0) claim(pos,{label:ch>1?`VL${b.vl}[${i+1}]`:`VL${b.vl}`,color:'#A0A0A0',subcom:false});
+    }
   });
 
-  // 5. Build subcom items (Z>1 only)
-  const subItems=[];
+  // 4. Subcom (Z>1): schedule params with equal minor-frame spacing,
+  //    place into remaining available positions throughout the frame.
   if(f.Z>1){
     const subParams=[];
     sensors.filter(s=>isSubcom(s.hz,f)).forEach(s=>{
       const m=SMETA[s.type]||SMETA.ETC; const ratio=subcomRatio(s.hz,f);
-      for(let i=0;i<s.ch;i++) subParams.push({name:`${s.name}[${i+1}]`,color:m.color,ratio});
+      for(let i=0;i<s.ch;i++) subParams.push({name:s.ch>1?`${s.name}[${i+1}]`:s.name,color:m.color,ratio});
     });
     digital.filter(d=>isSubcom(d.hz,f)).forEach(d=>{
       const m=DMETA[d.type]||DMETA.DIGITAL; const ch=Math.ceil(d.bits/f.B);
       const ratio=subcomRatio(d.hz,f);
-      for(let i=0;i<ch;i++) subParams.push({name:d.name,color:m.color,ratio});
+      for(let i=0;i<ch;i++) subParams.push({name:ch>1?`${d.name}[${i+1}]`:d.name,color:m.color,ratio});
     });
-    const positions=[];
+    // Schedule: each position shared by params at equal frame intervals
+    const schedule=[]; // [{slots:{frame_idx:param}}]
     subParams.forEach(p=>{
       let placed=false;
-      for(const pos of positions){
+      for(const sched of schedule){
         for(let off=0;off<p.ratio;off++){
           const frs=[]; for(let fi=off;fi<f.Z;fi+=p.ratio) frs.push(fi);
-          if(frs.every(fi=>!pos.slots[fi])){
-            frs.forEach(fi=>pos.slots[fi]=p); placed=true; break;
+          if(frs.every(fi=>!sched.slots[fi])){
+            frs.forEach(fi=>sched.slots[fi]=p); placed=true; break;
           }
         }
         if(placed) break;
       }
       if(!placed){
-        const pos={slots:{}};
+        const sched={slots:{}};
         for(let off=0;off<p.ratio;off++){
           const frs=[]; for(let fi=off;fi<f.Z;fi+=p.ratio) frs.push(fi);
-          if(frs.every(fi=>!pos.slots[fi])){
-            frs.forEach(fi=>pos.slots[fi]=p); break;
+          if(frs.every(fi=>!sched.slots[fi])){
+            frs.forEach(fi=>sched.slots[fi]=p); break;
           }
         }
-        positions.push(pos);
+        schedule.push(sched);
       }
     });
-    positions.forEach(pos=>{
-      const p=pos.slots[rowIdx];
-      if(p) subItems.push({label:p.name,color:p.color,subcom:true});
-      else subItems.push({label:'RSVD',color:'#F5F5F5',subcom:false});
+    // Place each scheduled position into the next available word
+    schedule.forEach(sched=>{
+      const pos=firstAvail(overhead,W);
+      if(pos<0) return;
+      const p=sched.slots[rowIdx];
+      if(p) claim(pos,{label:p.name,color:p.color,subcom:true});
+      else  claim(pos,{label:'RSVD',color:'#F5F5F5',subcom:false});
     });
   }
 
-  // 6. Place normal + subcom based on distribution mode
-  const allItems=[...normItems,...subItems];
-  const availIdx=[];
-  frame.forEach((d,i)=>{ if(d===null) availIdx.push(i); });
-
-  if(mode==='even' && allItems.length>0 && availIdx.length>0){
-    // Even: spread data evenly among all available positions (RSVD fills gaps)
-    const spacing=availIdx.length/allItems.length;
-    allItems.forEach((item,i)=>{
-      const ai=Math.min(Math.round(i*spacing), availIdx.length-1);
-      frame[availIdx[ai]]=item;
-    });
-  } else {
-    // Compact: pack data from first available position
-    let di=0;
-    for(let pos=0;pos<W&&di<allItems.length;pos++){
-      if(frame[pos]===null) frame[pos]=allItems[di++];
-    }
-  }
-
-  // 7. Fill remaining with RSVD and return
+  // 5. Fill remaining with RSVD
   return frame.map(d=>d||{label:'RSVD',color:'#F5F5F5',subcom:false});
 }
 
