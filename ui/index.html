@@ -888,8 +888,18 @@ function buildRow(f,rowIdx,maxSc){
   }
   function claim(pos,item){ frame[pos]=item; avail[pos]=false; }
 
-  // 2. Supercom: slot-based equal spacing — never drops channels
-  //    target_slots = sc evenly-spaced slot indices out of maxSc
+  // 2. Supercom: equal spacing = W // sc for each parameter independently
+  //    IRIG-106: "supercommutated samples shall be evenly spaced"
+  //    spacing based on TOTAL frame width W, not data-only area.
+  function nearestAvail(target){
+    target=Math.max(overhead,Math.min(target,W-1));
+    for(let d=0;d<W;d++){
+      for(const p of[target-d,target+d]){
+        if(p>=overhead&&p<W&&avail[p]) return p;
+      }
+    }
+    return -1;
+  }
   const allSuper=[];
   sensors.forEach(s=>{
     if(f.Z>1&&isSubcom(s.hz,f)) return;
@@ -906,13 +916,15 @@ function buildRow(f,rowIdx,maxSc){
   });
   allSuper.sort((a,b)=>b.sc-a.sc);
   allSuper.forEach(({sc,item})=>{
-    const tSlots=Array.from({length:sc},(_,i)=>Math.round(i*maxSc/sc));
-    tSlots.forEach(si=>{
-      const ss=overhead+si*slotW, se=ss+slotW;
-      let pos=firstAvail(ss,se);
-      if(pos<0) pos=firstAvail(overhead,W); // slot full → nearest available
+    const spacing=Math.floor(W/sc);  // evenly spaced across full frame W
+    const p0=firstAvail(overhead,W);
+    if(p0<0) return;
+    for(let k=0;k<sc;k++){
+      let ideal=p0+k*spacing;
+      if(ideal>=W) ideal=W-1;
+      const pos=avail[ideal]?ideal:nearestAvail(ideal);
       if(pos>=0) claim(pos,{...item});
-    });
+    }
   });
 
   // 3. Normal (1×) params: fill slot 0, overflow to anywhere

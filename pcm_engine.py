@@ -280,44 +280,42 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
     """
     Unified frame allocation for all modes (IRIG-106 Ch.4 compliant).
 
-    Supercommutation (sc > 1):
-      - Frame data area divided into max_sc equal slots.
-      - Each copy of a supercom channel is placed in one slot,
-        evenly spaced across the frame.
-      - If a target slot is full, the copy is placed in the nearest
-        available position — channels are NEVER silently dropped.
+    Supercommutation rule (IRIG-106 §4):
+      "Supercommutated samples shall be evenly spaced."
+      For a parameter with supercom ratio N, its N word positions must be
+      equally spaced across the entire minor frame of W words.
+      spacing = W // N   (based on TOTAL frame width, not data-only area)
 
-    Subcommutation (subcom_ratio > 1, requires Z > 1):
-      - Each subcom word position is shared by multiple parameters
-        appearing at equal intervals across minor frames (every R frames).
-      - Subcom positions are taken from the same available-position pool
-        as normal params, so they naturally spread throughout the frame
-        rather than clustering at the end.
+      Each supercom parameter is allocated independently:
+        copy_k ideal position = p0 + k * (W // N)
+      where p0 is the first available position in the data area.
+      If the ideal position is already taken, the nearest available
+      position is used — no channel is ever silently dropped.
 
-    Both rules apply simultaneously when Z > 1 and max_sc > 1.
+    Subcommutation rule (IRIG-106 §4):
+      A subcommutated parameter appears once every R minor frames (R = ratio).
+      All appearances are at the SAME fixed word position (identified by SFID).
+      Multiple subcom parameters share a word position, each occupying
+      every R-th minor frame with no overlap.
     """
     super_params = [p for p in params if p["supercom"] > 1]
     normal_params = [p for p in params if p["supercom"] == 1
                      and p.get("subcom_ratio", 0) == 0]
     subcom_params = [p for p in params if p.get("subcom_ratio", 0) > 0]
 
+    # High-ratio params first so they anchor the frame layout
     super_params.sort(key=lambda p: (-p["supercom"], p["dau"], p["type"], p["name"]))
     normal_params.sort(key=lambda p: (p["dau"], p["type"], p["name"]))
     subcom_params.sort(key=lambda p: (p["subcom_ratio"], p["dau"], p["name"]))
 
-    # Slot width for equal supercom spacing
-    # (data_words // max_sc guarantees each copy lands in its own slot)
-    slot_width = data_words // max_sc if max_sc > 1 else data_words
-
-    # Boolean availability map — True means the word position is free
+    # Availability map — True = free
     avail = [False] * W
     for i in range(overhead, W):
         avail[i] = True
 
-    # fixed[word_pos] = cell — identical in every minor frame
-    fixed: dict[int, dict] = {}
+    fixed: dict[int, dict] = {}  # word_pos → cell (same in every minor frame)
 
-    def claim(pos, cell):
+    def claim(pos: int, cell: dict) -> None:
         fixed[pos] = cell
         avail[pos] = False
 
@@ -327,43 +325,48 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
                 return i
         return None
 
-    # ── Supercom: slot-based equal spacing ──
-    # A param with sc copies needs one copy in each of sc target slots.
-    # target_slots are sc evenly-spaced indices out of max_sc.
+    def nearest_avail(target):
+        """Find the nearest free position to target within the data area."""
+        target = max(overhead, min(target, W - 1))
+        for offset in range(W):
+            for pos in (target - offset, target + offset):
+                if overhead <= pos < W and avail[pos]:
+                    return pos
+        return None
+
+    # ── Supercom: each parameter independently spaced at W//sc intervals ──
     for p in super_params:
         sc = p["supercom"]
-        target_slots = [round(i * max_sc / sc) for i in range(sc)]
-        for slot_idx in target_slots:
-            slot_start = overhead + slot_idx * slot_width
-            slot_end   = min(slot_start + slot_width, W)
-            pos = first_avail(slot_start, slot_end)
-            if pos is None:
-                # Target slot full — find nearest available in whole data area
-                pos = first_avail(overhead, W)
+        spacing = W // sc          # IRIG-106: evenly spaced across full frame W
+
+        p0 = first_avail(overhead, W)
+        if p0 is None:
+            continue               # frame already full (overflow → validate_config warns)
+
+        for k in range(sc):
+            ideal = p0 + k * spacing
+            if ideal >= W:
+                ideal = W - 1      # clamp; won't happen if frame is not overflowed
+            pos = ideal if avail[ideal] else nearest_avail(ideal)
             if pos is not None:
                 claim(pos, _make_cell_from_param(p))
 
-    # ── Normal (1×): fill slot 0, overflow to anywhere ──
-    slot0_end = min(overhead + slot_width, W)
+    # ── Normal (1×): fill any remaining data-area position ──
     for p in normal_params:
-        pos = first_avail(overhead, slot0_end)
-        if pos is None:
-            pos = first_avail(overhead, W)
+        pos = first_avail(overhead, W)
         if pos is not None:
             claim(pos, _make_cell_from_param(p))
 
-    # ── Subcom: schedule into remaining available positions ──
-    # Available positions are spread throughout the frame at this point,
-    # so subcom slots will be interleaved — not clustered at the end.
-    # Each position holds Z "slots" (one per minor frame); params with
-    # ratio=R occupy every R-th slot (equal frame-spacing).
-    subcom_schedule: list[dict] = []  # [{position, slots:{mf_idx: param}}]
+    # ── Subcom: schedule parameters into shared word positions ──
+    # Each word position holds Z minor-frame "slots".
+    # A param with ratio R occupies every R-th slot (frames 0, R, 2R, …).
+    # Multiple params share a position as long as their frame sets don't overlap.
+    subcom_schedule: list[dict] = []
 
     for p in subcom_params:
         ratio = p["subcom_ratio"]
         placed = False
 
-        # Try to share an existing subcom position
         for sched in subcom_schedule:
             for offset in range(ratio):
                 frames_hit = list(range(offset, Z, ratio))
@@ -391,23 +394,19 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
     # ── Build Z minor frames ──
     frames = []
     for mf_idx in range(Z):
-        frame = [None] * W
+        frame: list = [None] * W
 
-        # SYNC
         for i in range(sync_count):
             frame[i] = _make_cell("SYNC", "SYNC", "system", "#FF4444")
-        # SFID (value = minor frame index when Z > 1)
         for i in range(sfid_count):
             cell = _make_cell("SFID", "SFID", "system", "#CC0000")
             if Z > 1:
                 cell["note"] = f"MF#{mf_idx}"
             frame[sync_count + i] = cell
 
-        # Fixed params — identical in every minor frame
         for pos, cell in fixed.items():
             frame[pos] = dict(cell)
 
-        # Subcom — different param per minor frame, same word position
         for sched in subcom_schedule:
             word_pos = sched["position"]
             p = sched["slots"].get(mf_idx)
@@ -420,7 +419,6 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
                 frame[word_pos] = _make_cell("RSVD", "RSVD", "reserved",
                                               "#F5F5F5", note="subcom spare")
 
-        # Fill gaps with RESERVED
         for i in range(W):
             if frame[i] is None:
                 frame[i] = _make_cell("RSVD", "RSVD", "reserved", "#F5F5F5")
@@ -428,7 +426,7 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
         label = f"MF {mf_idx} (SFID={mf_idx})" if Z > 1 else "Minor Frame"
         entry: dict = {"label": label, "cells": frame}
         if max_sc > 1:
-            entry["slot_width"] = slot_width
+            entry["slot_width"] = W // max_sc   # for UI slot-boundary display
             entry["max_sc"] = max_sc
         frames.append(entry)
 
