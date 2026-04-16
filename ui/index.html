@@ -642,13 +642,14 @@ function maxSupercom(f){
 }
 // Channel usage per minor frame
 // supercom/normal: ch * supercom_ratio words per minor
-// subcom: params share word positions → ceil(total_subcom_slots / Z) positions
+// subcom: each channel owns one dedicated word position (no sharing)
 function calcUsed(f){
-  let su=0, du=0, subSlots=0;
+  let su=0, du=0, subPos=0, subAppearances=0;
   sensors.forEach(s=>{
     if(isSubcom(s.hz,f)){
       const ratio=subcomRatio(s.hz,f);
-      subSlots += s.ch * (f.Z / ratio);
+      subPos += s.ch;
+      subAppearances += s.ch * Math.floor(f.Z / ratio);
     } else {
       su += s.ch * supercom(s.hz,f);
     }
@@ -657,14 +658,14 @@ function calcUsed(f){
     const ch=Math.ceil(d.bits/f.B);
     if(isSubcom(d.hz,f)){
       const ratio=subcomRatio(d.hz,f);
-      subSlots += ch * (f.Z / ratio);
+      subPos += ch;
+      subAppearances += ch * Math.floor(f.Z / ratio);
     } else {
       du += ch * supercom(d.hz,f);
     }
   });
   const bu=bitData.reduce((t,b)=>t+Math.ceil(b.bytes/(f.B/8)),0);
-  const subPos = f.Z > 1 ? Math.ceil(subSlots / f.Z) : 0;
-  return {su,du,bu,subPos,subSlots,total:su+du+bu+subPos};
+  return {su,du,bu,subPos,subSlots:subAppearances,total:su+du+bu+subPos};
 }
 
 // ─────────────────────────────────────────────────
@@ -790,7 +791,7 @@ function onFrameChange(){
   if(used.subPos>0){
     subWrap.style.display='';
     document.getElementById('st-sub').textContent=used.subPos;
-    document.getElementById('st-sub-info').textContent=`${Math.round(used.subSlots)} param-slots shared`;
+    document.getElementById('st-sub-info').textContent=`${Math.round(used.subSlots)} appearances/major`;
   } else {
     subWrap.style.display='none';
   }
@@ -888,18 +889,13 @@ function buildRow(f,rowIdx,maxSc){
   }
   function claim(pos,item){ frame[pos]=item; avail[pos]=false; }
 
-  // 2. Supercom: equal spacing = W // sc for each parameter independently
+  // 2. Supercom: intelligent equidistant placement
   //    IRIG-106: "supercommutated samples shall be evenly spaced"
-  //    spacing based on TOTAL frame width W, not data-only area.
-  function nearestAvail(target){
-    target=Math.max(overhead,Math.min(target,W-1));
-    for(let d=0;d<W;d++){
-      for(const p of[target-d,target+d]){
-        if(p>=overhead&&p<W&&avail[p]) return p;
-      }
-    }
-    return -1;
-  }
+  //    spacing = W // sc (based on TOTAL frame width W)
+  //    For each channel, scan ALL starting offsets p0 ∈ [overhead, overhead+spacing)
+  //    and use the first one where every copy p0, p0+spacing, …, p0+(sc-1)*spacing
+  //    is free. This guarantees equal spacing even when higher-ratio params already
+  //    occupy some slots — no nearestAvail fallback that would break decommutation.
   const allSuper=[];
   sensors.forEach(s=>{
     if(f.Z>1&&isSubcom(s.hz,f)) return;
@@ -916,13 +912,26 @@ function buildRow(f,rowIdx,maxSc){
   });
   allSuper.sort((a,b)=>b.sc-a.sc);
   allSuper.forEach(({sc,item})=>{
-    const spacing=Math.floor(W/sc);  // evenly spaced across full frame W
-    const p0=firstAvail(overhead,W);
-    if(p0<0) return;
-    for(let k=0;k<sc;k++){
-      let ideal=p0+k*spacing;
-      if(ideal>=W) ideal=W-1;
-      const pos=avail[ideal]?ideal:nearestAvail(ideal);
+    const spacing=Math.floor(W/sc);
+    let placed=false;
+    // Scan every possible starting offset within one spacing period
+    for(let p0=overhead; p0<overhead+spacing; p0++){
+      let valid=true;
+      const positions=[];
+      for(let k=0;k<sc;k++){
+        const pos=p0+k*spacing;
+        if(pos>=W||!avail[pos]){valid=false;break;}
+        positions.push(pos);
+      }
+      if(valid){
+        positions.forEach(pos=>claim(pos,{...item}));
+        placed=true;
+        break;
+      }
+    }
+    if(!placed){
+      // Overflow: place at first available (validate_config will warn)
+      const pos=firstAvail(overhead,W);
       if(pos>=0) claim(pos,{...item});
     }
   });
@@ -959,8 +968,10 @@ function buildRow(f,rowIdx,maxSc){
     }
   });
 
-  // 4. Subcom (Z>1): schedule params with equal minor-frame spacing,
-  //    place into remaining available positions throughout the frame.
+  // 4. Subcom (Z>1): each channel owns one dedicated word position.
+  //    Appears at frames 0, ratio, 2*ratio, … (starting at frame 0).
+  //    All other frames at that position show RSVD.
+  //    No sharing between different subcom channels — same rule as Python engine.
   if(f.Z>1){
     const subParams=[];
     sensors.filter(s=>isSubcom(s.hz,f)).forEach(s=>{
@@ -972,37 +983,16 @@ function buildRow(f,rowIdx,maxSc){
       const ratio=subcomRatio(d.hz,f);
       for(let i=0;i<ch;i++) subParams.push({name:ch>1?`${d.name}[${i+1}]`:d.name,color:m.color,ratio});
     });
-    // Schedule: each position shared by params at equal frame intervals
-    const schedule=[]; // [{slots:{frame_idx:param}}]
+    // Each subcom channel gets its own dedicated word position.
+    // It appears at that position when rowIdx % ratio === 0, otherwise RSVD.
     subParams.forEach(p=>{
-      let placed=false;
-      for(const sched of schedule){
-        for(let off=0;off<p.ratio;off++){
-          const frs=[]; for(let fi=off;fi<f.Z;fi+=p.ratio) frs.push(fi);
-          if(frs.every(fi=>!sched.slots[fi])){
-            frs.forEach(fi=>sched.slots[fi]=p); placed=true; break;
-          }
-        }
-        if(placed) break;
-      }
-      if(!placed){
-        const sched={slots:{}};
-        for(let off=0;off<p.ratio;off++){
-          const frs=[]; for(let fi=off;fi<f.Z;fi+=p.ratio) frs.push(fi);
-          if(frs.every(fi=>!sched.slots[fi])){
-            frs.forEach(fi=>sched.slots[fi]=p); break;
-          }
-        }
-        schedule.push(sched);
-      }
-    });
-    // Place each scheduled position into the next available word
-    schedule.forEach(sched=>{
       const pos=firstAvail(overhead,W);
       if(pos<0) return;
-      const p=sched.slots[rowIdx];
-      if(p) claim(pos,{label:p.name,color:p.color,subcom:true});
-      else  claim(pos,{label:'RSVD',color:'#F5F5F5',subcom:false});
+      avail[pos]=false;
+      if(rowIdx%p.ratio===0)
+        frame[pos]={label:p.name,color:p.color,subcom:true};
+      else
+        frame[pos]={label:'RSVD',color:'#F5F5F5',subcom:false};
     });
   }
 
