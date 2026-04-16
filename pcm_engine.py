@@ -96,24 +96,27 @@ def _calc_total_used(config: dict) -> dict:
     """Calculate total used word positions per minor frame.
 
     Returns dict with sensor/digital/bit/subcom counts and total.
-    Subcom params share word positions across Z minor frames,
-    so they consume fewer positions than their raw EA count.
+    Each subcom parameter receives its own dedicated word position
+    (IRIG-106: each subcommutated channel must map to a fixed word
+    position identified by SFID, with no sharing between channels).
     """
     frame_hz = config["frame_hz"]
     B = config["bits_per_word"]
     Z = config["minor_count"]
     mfr = frame_hz * Z  # minor frame rate
 
-    sensor_words = 0   # non-subcom sensor words per minor
-    digital_words = 0  # non-subcom digital words per minor
+    sensor_words = 0    # non-subcom sensor words per minor
+    digital_words = 0   # non-subcom digital words per minor
     bit_words = 0
-    subcom_slots = 0   # total frame-slots needed by subcom params
+    subcom_positions = 0    # dedicated word positions for subcom (one per channel)
+    subcom_appearances = 0  # total subcom appearances per major frame
 
     for s in config.get("sensors", []):
         if s["hz"] < mfr and Z > 1:
-            # Subcommutated: appears Z/ratio times per major frame
+            # Each channel gets its own dedicated word position
             ratio = max(1, round(mfr / s["hz"]))
-            subcom_slots += s["ch"] * (Z / ratio)
+            subcom_positions += s["ch"]
+            subcom_appearances += s["ch"] * (Z // ratio)
         else:
             sc = max(1, round(s["hz"] / mfr))
             sensor_words += s["ch"] * sc
@@ -122,7 +125,8 @@ def _calc_total_used(config: dict) -> dict:
         ch_per_sample = math.ceil(d["bits"] / B)
         if d["hz"] < mfr and Z > 1:
             ratio = max(1, round(mfr / d["hz"]))
-            subcom_slots += ch_per_sample * (Z / ratio)
+            subcom_positions += ch_per_sample
+            subcom_appearances += ch_per_sample * (Z // ratio)
         else:
             sc = max(1, round(d["hz"] / mfr))
             digital_words += ch_per_sample * sc
@@ -130,8 +134,6 @@ def _calc_total_used(config: dict) -> dict:
     for b in config.get("bit_data", []):
         bit_words += math.ceil(b["bytes"] / (B / 8))
 
-    # Subcom positions: each position has Z slots, pack subcom params into them
-    subcom_positions = math.ceil(subcom_slots / Z) if Z > 1 else 0
     total = sensor_words + digital_words + bit_words + subcom_positions
 
     return {
@@ -139,7 +141,7 @@ def _calc_total_used(config: dict) -> dict:
         "digital": digital_words,
         "bit": bit_words,
         "subcom_positions": subcom_positions,
-        "subcom_params": int(subcom_slots) if Z > 1 else 0,
+        "subcom_params": subcom_appearances,
         "total": total,
     }
 
@@ -282,21 +284,24 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
 
     Supercommutation rule (IRIG-106 §4):
       "Supercommutated samples shall be evenly spaced."
-      For a parameter with supercom ratio N, its N word positions must be
-      equally spaced across the entire minor frame of W words.
-      spacing = W // N   (based on TOTAL frame width, not data-only area)
+      spacing = W // N  (based on TOTAL frame width)
 
-      Each supercom parameter is allocated independently:
-        copy_k ideal position = p0 + k * (W // N)
-      where p0 is the first available position in the data area.
-      If the ideal position is already taken, the nearest available
-      position is used — no channel is ever silently dropped.
+      For each supercom parameter, ALL N copies must be placed at
+      exactly equal intervals. We scan every possible starting offset
+      p0 in [overhead, overhead+spacing) and select the first offset
+      where ALL positions p0, p0+spacing, …, p0+(N-1)*spacing are free.
+      This avoids the "nearest available" fallback that would break
+      equal spacing. If a single starting offset cannot satisfy all
+      copies, the channel is placed at whatever free positions remain
+      (overflow — validate_config will flag this).
 
     Subcommutation rule (IRIG-106 §4):
-      A subcommutated parameter appears once every R minor frames (R = ratio).
-      All appearances are at the SAME fixed word position (identified by SFID).
-      Multiple subcom parameters share a word position, each occupying
-      every R-th minor frame with no overlap.
+      Each subcommutated channel gets its own dedicated word position.
+      It appears at that position in every R-th minor frame
+      (frames 0, R, 2R, …) where R = subcom_ratio.
+      All other minor frames at that position are RSVD.
+      No sharing between different subcom channels — each channel owns
+      exactly one word position throughout the major frame.
     """
     super_params = [p for p in params if p["supercom"] > 1]
     normal_params = [p for p in params if p["supercom"] == 1
@@ -325,29 +330,28 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
                 return i
         return None
 
-    def nearest_avail(target):
-        """Find the nearest free position to target within the data area."""
-        target = max(overhead, min(target, W - 1))
-        for offset in range(W):
-            for pos in (target - offset, target + offset):
-                if overhead <= pos < W and avail[pos]:
-                    return pos
-        return None
-
-    # ── Supercom: each parameter independently spaced at W//sc intervals ──
+    # ── Supercom: intelligent equidistant placement ──
+    # For each channel, scan starting offsets until finding one where
+    # every copy lands on a free slot.  This preserves equal spacing
+    # even when higher-ratio params have already claimed some positions.
     for p in super_params:
         sc = p["supercom"]
-        spacing = W // sc          # IRIG-106: evenly spaced across full frame W
+        spacing = W // sc       # IRIG-106: evenly spaced across full frame W
 
-        p0 = first_avail(overhead, W)
-        if p0 is None:
-            continue               # frame already full (overflow → validate_config warns)
+        placed = False
+        # Scan all possible starting offsets within one spacing period
+        for p0 in range(overhead, overhead + spacing):
+            positions = [p0 + k * spacing for k in range(sc)]
+            if all(pos < W and avail[pos] for pos in positions):
+                for pos in positions:
+                    claim(pos, _make_cell_from_param(p))
+                placed = True
+                break
 
-        for k in range(sc):
-            ideal = p0 + k * spacing
-            if ideal >= W:
-                ideal = W - 1      # clamp; won't happen if frame is not overflowed
-            pos = ideal if avail[ideal] else nearest_avail(ideal)
+        if not placed:
+            # Overflow: place at any remaining free positions
+            # (validate_config will report the overflow)
+            pos = first_avail(overhead, W)
             if pos is not None:
                 claim(pos, _make_cell_from_param(p))
 
@@ -357,39 +361,23 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
         if pos is not None:
             claim(pos, _make_cell_from_param(p))
 
-    # ── Subcom: schedule parameters into shared word positions ──
-    # Each word position holds Z minor-frame "slots".
-    # A param with ratio R occupies every R-th slot (frames 0, R, 2R, …).
-    # Multiple params share a position as long as their frame sets don't overlap.
+    # ── Subcom: each channel owns one dedicated word position ──
+    # Appears at frames 0, R, 2R, … (starting at frame 0).
+    # All other frames at that position show RSVD.
     subcom_schedule: list[dict] = []
 
     for p in subcom_params:
+        pos = first_avail(overhead, W)
+        if pos is None:
+            continue  # frame full — overflow
+        avail[pos] = False  # reserve this position
         ratio = p["subcom_ratio"]
-        placed = False
-
-        for sched in subcom_schedule:
-            for offset in range(ratio):
-                frames_hit = list(range(offset, Z, ratio))
-                if all(f not in sched["slots"] for f in frames_hit):
-                    for f in frames_hit:
-                        sched["slots"][f] = p
-                    placed = True
-                    break
-            if placed:
-                break
-
-        if not placed:
-            pos = first_avail(overhead, W)
-            if pos is not None:
-                sched: dict = {"position": pos, "slots": {}}
-                for offset in range(ratio):
-                    frames_hit = list(range(offset, Z, ratio))
-                    if all(f not in sched["slots"] for f in frames_hit):
-                        for f in frames_hit:
-                            sched["slots"][f] = p
-                        break
-                subcom_schedule.append(sched)
-                avail[pos] = False
+        appear_frames = set(range(0, Z, ratio))
+        subcom_schedule.append({
+            "position": pos,
+            "param": p,
+            "frames": appear_frames,
+        })
 
     # ── Build Z minor frames ──
     frames = []
@@ -409,8 +397,8 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
 
         for sched in subcom_schedule:
             word_pos = sched["position"]
-            p = sched["slots"].get(mf_idx)
-            if p is not None:
+            p = sched["param"]
+            if mf_idx in sched["frames"]:
                 cell = _make_cell_from_param(p)
                 cell["subcom"] = True
                 cell["subcom_ratio"] = p["subcom_ratio"]
@@ -614,8 +602,8 @@ def auto_calculate_frame_size(config: dict) -> dict:
 
     for s in sensors:
         if s["hz"] < mfr and Z > 1:
-            ratio = max(1, round(mfr / s["hz"]))
-            subcom_slots += s["ch"] * (Z / ratio)
+            # Each subcom channel needs its own dedicated word position
+            subcom_slots += s["ch"]
         else:
             sc = max(1, round(s["hz"] / mfr))
             max_sc = max(max_sc, sc)
@@ -624,8 +612,7 @@ def auto_calculate_frame_size(config: dict) -> dict:
     for d in digital_data:
         ch_count = math.ceil(d["bits"] / B)
         if d["hz"] < mfr and Z > 1:
-            ratio = max(1, round(mfr / d["hz"]))
-            subcom_slots += ch_count * (Z / ratio)
+            subcom_slots += ch_count
         else:
             sc = max(1, round(d["hz"] / mfr))
             max_sc = max(max_sc, sc)
@@ -634,9 +621,9 @@ def auto_calculate_frame_size(config: dict) -> dict:
     for b in bit_data:
         total_data_ch += math.ceil(b["bytes"] / (B / 8))
 
-    # Add subcom positions
+    # Add subcom positions (one dedicated word position per subcom channel)
     if Z > 1:
-        total_data_ch += math.ceil(subcom_slots / Z)
+        total_data_ch += subcom_slots
 
     # Minimum W
     min_W = total_data_ch + overhead
