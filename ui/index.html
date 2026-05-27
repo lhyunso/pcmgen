@@ -99,7 +99,7 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
 /* ── Channel Table (matrix) ── */
 .cht-scroll{overflow:auto;max-height:60vh;border:1px solid var(--border);border-radius:var(--r);background:#fff}
 .cht-matrix{border-collapse:collapse;table-layout:fixed}
-.cht-matrix th,.cht-matrix td{width:28px;min-width:28px;max-width:28px;height:18px;padding:0 1px;border:1px solid #E0E0E0;font-size:7px;text-align:center;overflow:hidden;white-space:nowrap}
+.cht-matrix th,.cht-matrix td{width:52px;min-width:52px;max-width:52px;height:20px;padding:0 2px;border:1px solid #E0E0E0;font-size:7px;text-align:center;overflow:hidden;white-space:nowrap}
 .cht-matrix .rh{position:sticky;left:0;z-index:1;background:#E2E8F0;width:52px;min-width:52px;max-width:52px;font-weight:700;font-size:9px;text-align:right;padding-right:4px;color:var(--text2)}
 .cht-matrix thead th{position:sticky;top:0;z-index:2;background:#1A202C;color:#fff;height:22px;font-size:8px}
 .cht-matrix thead .rh{z-index:3}
@@ -183,11 +183,13 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
   <div onclick="event.stopPropagation()" style="background:#fff;border-radius:10px;padding:28px 32px;min-width:300px;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,.25);text-align:center">
     <div style="font-size:22px;font-weight:700;color:#0F4C81;margin-bottom:4px">PCM Channel Config Generator</div>
     <div style="font-size:13px;color:#4A5568;margin-bottom:16px">IRIG 106 Ch.4 Compliant</div>
-    <div style="display:inline-block;background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;border-radius:20px;padding:5px 20px;font-size:18px;font-weight:700;letter-spacing:1px;margin-bottom:16px">v1.0.0</div>
+    <div style="display:inline-block;background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;border-radius:20px;padding:5px 20px;font-size:18px;font-weight:700;letter-spacing:1px;margin-bottom:16px">v1.1.0</div>
     <div style="font-size:11px;color:#718096;line-height:1.7">
       © 2025 단암시스템즈 (Danam Systems)<br>
       Supercom: intelligent equidistant placement<br>
-      Subcom: dedicated word position per channel
+      Subcom: dedicated word position per channel<br>
+      <span style="color:#1D4ED8;font-weight:600">New:</span> 분산형 장치 지원 (M / S1~S9), 모듈 슬롯 (S1~S10)<br>
+      채널 ID: {device}_{slot}_{module}-{ch:02d}-{supercom}
     </div>
     <button onclick="closeAbout()" style="margin-top:18px;padding:7px 28px;background:#1A6FB5;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600">닫기</button>
   </div>
@@ -396,7 +398,7 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
   </div>
   <table class="dt">
     <thead><tr>
-      <th>#</th><th>Type</th><th>Parameter</th>
+      <th>#</th><th>Type</th><th>Device</th><th>Slot</th><th>Module Name</th>
       <th>Hz</th><th>EA</th>
       <th class="ca">Comm</th><th class="ca">Words/Minor</th>
       <th>Note</th>
@@ -500,13 +502,48 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
           <option value="ETC">Other</option>
         </select>
       </div>
-      <div class="fr"><label>Parameter Name</label><input type="text" id="m-pn" placeholder="e.g., MDAU_RTD_1"></div>
+      <div class="g2">
+        <div class="fr"><label>장치 (Device)</label>
+          <select id="m-dev" onchange="updateLabelPreview()">
+            <option value="M">M (Master)</option>
+            <option value="S1">S1 (Slave 1)</option>
+            <option value="S2">S2 (Slave 2)</option>
+            <option value="S3">S3 (Slave 3)</option>
+            <option value="S4">S4 (Slave 4)</option>
+            <option value="S5">S5 (Slave 5)</option>
+            <option value="S6">S6 (Slave 6)</option>
+            <option value="S7">S7 (Slave 7)</option>
+            <option value="S8">S8 (Slave 8)</option>
+            <option value="S9">S9 (Slave 9)</option>
+          </select>
+        </div>
+        <div class="fr"><label>모듈 위치 (Slot)</label>
+          <select id="m-slot" onchange="updateLabelPreview()">
+            <option value="S1">S1</option>
+            <option value="S2">S2</option>
+            <option value="S3">S3</option>
+            <option value="S4">S4</option>
+            <option value="S5">S5</option>
+            <option value="S6">S6</option>
+            <option value="S7">S7</option>
+            <option value="S8">S8</option>
+            <option value="S9">S9</option>
+            <option value="S10">S10</option>
+          </select>
+        </div>
+      </div>
+      <div class="fr"><label>모듈 이름 (Module Name)</label><input type="text" id="m-pn" placeholder="e.g., RTD, DC, ICP, PZT" oninput="updateLabelPreview()"></div>
       <div class="g2">
         <div class="fr"><label>Sample Rate (Hz)</label>
           <input type="number" id="m-hz" value="50" min="0.001" step="any" oninput="onMHz()">
           <div class="hint" id="m-sc" style="color:var(--c1)">1x → 1 words/minor frame</div>
         </div>
-        <div class="fr"><label>Channel Count (EA)</label><input type="number" id="m-ch" value="1" min="1" oninput="onMHz()"></div>
+        <div class="fr"><label>채널 수 (EA, 최대 16)</label><input type="number" id="m-ch" value="1" min="1" max="16" oninput="onMHz()"></div>
+      </div>
+      <!-- Channel ID Preview -->
+      <div class="fr" style="background:#F0F7FF;border:1px solid #93C5FD;border-radius:var(--r);padding:8px 10px;margin-bottom:7px">
+        <label style="color:#1D4ED8;font-weight:600;margin-bottom:4px">채널 ID 미리보기</label>
+        <div id="m-label-preview" style="font-family:monospace;font-size:11px;color:#0F4C81;word-break:break-all;line-height:1.6"></div>
       </div>
       <div class="fr"><label>Note</label><input type="text" id="m-nt" placeholder="optional"></div>
     </div>
@@ -580,17 +617,17 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
 const IRIG = { MAX_Z:256, MAX_BITS_C1:8192, MAX_WORDS_C1:1024, MAX_BPW_C1:16, MAX_BR_C1:5e6, MIN_BR:10, SYNC_MIN:16, SYNC_MAX:33 };
 
 const SMETA = {
-  RTD:     {label:'RTD',      color:'#FFD700', hz:50,  pfx:'RTD'},
-  STR3W:   {label:'STR 3W',   color:'#90EE90', hz:50,  pfx:'STR3W'},
-  STR4W:   {label:'STR 4W',   color:'#5DBD5D', hz:50,  pfx:'STR4W'},
-  PRS:     {label:'PRS',      color:'#6495ED', hz:50,  pfx:'PRS'},
-  ACCICP:  {label:'ACC(ICP)', color:'#FF8C00', hz:800, pfx:'ACC_ICP'},
-  ACCDC:   {label:'ACC(DC)',  color:'#FFB347', hz:50,  pfx:'ACC_DC'},
-  VOLTAGE: {label:'VOLTAGE',  color:'#87CEEB', hz:50,  pfx:'VOLT'},
-  TC:      {label:'TC',       color:'#FF69B4', hz:50,  pfx:'TC'},
-  PIEZO:   {label:'PIEZO',    color:'#9370DB', hz:800, pfx:'PIEZO'},
-  ACOUSTIC:{label:'ACOUSTIC', color:'#C0A0FF', hz:800, pfx:'ACOUSTIC'},
-  ETC:     {label:'Other',    color:'#C8C8C8', hz:50,  pfx:'SENSOR'},
+  RTD:     {label:'RTD',      color:'#FFD700', hz:50,  pfx:'RTD',      mod:'RTD'},
+  STR3W:   {label:'STR 3W',   color:'#90EE90', hz:50,  pfx:'STR3W',    mod:'STR3'},
+  STR4W:   {label:'STR 4W',   color:'#5DBD5D', hz:50,  pfx:'STR4W',    mod:'STR4'},
+  PRS:     {label:'PRS',      color:'#6495ED', hz:50,  pfx:'PRS',      mod:'PRS'},
+  ACCICP:  {label:'ACC(ICP)', color:'#FF8C00', hz:800, pfx:'ACC_ICP',  mod:'ICP'},
+  ACCDC:   {label:'ACC(DC)',  color:'#FFB347', hz:50,  pfx:'ACC_DC',   mod:'ACC'},
+  VOLTAGE: {label:'VOLTAGE',  color:'#87CEEB', hz:50,  pfx:'VOLT',     mod:'DC'},
+  TC:      {label:'TC',       color:'#FF69B4', hz:50,  pfx:'TC',       mod:'TC'},
+  PIEZO:   {label:'PIEZO',    color:'#9370DB', hz:800, pfx:'PIEZO',    mod:'PZT'},
+  ACOUSTIC:{label:'ACOUSTIC', color:'#C0A0FF', hz:800, pfx:'ACOUSTIC', mod:'ACO'},
+  ETC:     {label:'Other',    color:'#C8C8C8', hz:50,  pfx:'SENSOR',   mod:'SEN'},
 };
 const DMETA = {
   DISCRETE:{label:'Discrete', color:'#B0C4DE', bits:1},
@@ -602,6 +639,16 @@ const DMETA = {
   ENCODER: {label:'Encoder',  color:'#A9DFBF', bits:16},
   DIGITAL: {label:'Digital',  color:'#AED6F1', bits:16},
 };
+
+// ─────────────────────────────────────────────────
+//  Channel ID Label Helper
+//  Format: {device}_{slot}_{module}-{ch:02d}-{supercom}
+//  Example: M_S5_DC-06-1
+// ─────────────────────────────────────────────────
+function makeChannelLabel(device, slot, moduleName, chNum, supercomRatio){
+  const ch = String(chNum).padStart(2,'0');
+  return `${device}_${slot}_${moduleName}-${ch}-${supercomRatio}`;
+}
 
 // ─────────────────────────────────────────────────
 //  State
@@ -699,7 +746,7 @@ function buildConfig(){
     sfid_count: f.sf,
     sync_pattern: f.sp,
     bit_repr: f.br,
-    sensors: sensors.map(s=>({type:s.type,name:s.name,hz:s.hz,ch:s.ch,dau:s.dau||'MDAU',note:s.note||''})),
+    sensors: sensors.map(s=>({type:s.type,device:s.device||'M',slot:s.slot||'S1',name:s.name,hz:s.hz,ch:s.ch,note:s.note||''})),
     digital: digital.map(d=>({type:d.type,name:d.name,hz:d.hz,bits:d.bits,dau:d.dau,note:d.note})),
     bit_data: bitData.map(b=>({vl:b.vl,bytes:b.bytes,note:b.note})),
   };
@@ -918,7 +965,11 @@ function buildRow(f,rowIdx,maxSc){
     if(f.Z>1&&isSubcom(s.hz,f)) return;
     const sc_=supercom(s.hz,f); if(sc_<=1) return;
     const m=SMETA[s.type]||SMETA.ETC;
-    for(let i=0;i<s.ch;i++) allSuper.push({sc:sc_,item:{label:s.ch>1?`${s.name}[${i+1}]`:s.name,color:m.color,subcom:false}});
+    const dev=s.device||'M', slt=s.slot||'S1', mod=s.name||'MOD';
+    for(let i=0;i<s.ch;i++){
+      const lbl=makeChannelLabel(dev,slt,mod,i+1,sc_);
+      allSuper.push({sc:sc_,item:{label:lbl,color:m.color,subcom:false}});
+    }
   });
   digital.forEach(d=>{
     if(f.Z>1&&isSubcom(d.hz,f)) return;
@@ -959,10 +1010,12 @@ function buildRow(f,rowIdx,maxSc){
     if(f.Z>1&&isSubcom(s.hz,f)) return;
     if(supercom(s.hz,f)>1) return;
     const m=SMETA[s.type]||SMETA.ETC;
+    const dev=s.device||'M', slt=s.slot||'S1', mod=s.name||'MOD';
     for(let i=0;i<s.ch;i++){
+      const lbl=makeChannelLabel(dev,slt,mod,i+1,1);
       let pos=firstAvail(overhead,slot0End);
       if(pos<0) pos=firstAvail(overhead,W);
-      if(pos>=0) claim(pos,{label:s.ch>1?`${s.name}[${i+1}]`:s.name,color:m.color,subcom:false});
+      if(pos>=0) claim(pos,{label:lbl,color:m.color,subcom:false});
     }
   });
   digital.forEach(d=>{
@@ -993,7 +1046,11 @@ function buildRow(f,rowIdx,maxSc){
     const subParams=[];
     sensors.filter(s=>isSubcom(s.hz,f)).forEach(s=>{
       const m=SMETA[s.type]||SMETA.ETC; const ratio=subcomRatio(s.hz,f);
-      for(let i=0;i<s.ch;i++) subParams.push({name:s.ch>1?`${s.name}[${i+1}]`:s.name,color:m.color,ratio});
+      const dev=s.device||'M', slt=s.slot||'S1', mod=s.name||'MOD';
+      for(let i=0;i<s.ch;i++){
+        const lbl=makeChannelLabel(dev,slt,mod,i+1,1);
+        subParams.push({name:lbl,color:m.color,ratio});
+      }
     });
     digital.filter(d=>isSubcom(d.hz,f)).forEach(d=>{
       const m=DMETA[d.type]||DMETA.DIGITAL; const ch=Math.ceil(d.bits/f.B);
@@ -1065,7 +1122,9 @@ function isTextDark(hex){
 }
 function shortLabel(l){
   if(!l||l==='RSVD') return '';
-  if(l.length>8) return l.slice(0,7)+'..';
+  // For distributed IDs like M_S1_DC-06-1, show compact form
+  // e.g. "M_S1_DC-06-1" → show as-is if fits, else truncate
+  if(l.length>12) return l.slice(0,11)+'..';
   return l;
 }
 
@@ -1121,15 +1180,19 @@ function renderSensors(){
       wordsPerMinor=`<strong>${s.ch}</strong>`;
     }
     const m=SMETA[s.type]||SMETA.ETC;
+    const device=s.device||'M';
+    const slot=s.slot||'S1';
     return `<tr class="${selS===i?'sel':''}" onclick="selSensor(${i})" ondblclick="editSensorRow(${i})">
       <td>${i+1}</td>
       <td><span class="sdot" style="background:${m.color}"></span>${m.label}</td>
+      <td style="font-weight:700;color:var(--accent)">${device}</td>
+      <td style="font-weight:600;color:var(--text2)">${slot}</td>
       <td>${s.name}</td><td>${s.hz}</td><td>${s.ch}</td>
       <td class="ca">${commLabel}</td>
       <td class="ca">${wordsPerMinor}</td>
       <td style="color:var(--text3)">${s.note||''}</td>
     </tr>`;
-  }).join('')||`<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text3)">Add sensors to begin</td></tr>`;
+  }).join('')||`<tr><td colspan="10" style="padding:20px;text-align:center;color:var(--text3)">Add sensors to begin</td></tr>`;
   document.getElementById('tc-s').textContent=sensors.length;
   updSBtns();
   onFrameChange();
@@ -1152,6 +1215,8 @@ function editSensorRow(i){
   editSIdx=i; const s=sensors[i];
   document.getElementById('sm-title').textContent='Edit Sensor';
   document.getElementById('m-st').value=s.type;
+  document.getElementById('m-dev').value=s.device||'M';
+  document.getElementById('m-slot').value=s.slot||'S1';
   document.getElementById('m-pn').value=s.name;
   document.getElementById('m-hz').value=s.hz;
   document.getElementById('m-ch').value=s.ch;
@@ -1162,6 +1227,8 @@ function openSensorModal(){
   editSIdx=-1;
   document.getElementById('sm-title').textContent='Add Sensor';
   document.getElementById('m-st').value='RTD';
+  document.getElementById('m-dev').value='M';
+  document.getElementById('m-slot').value='S1';
   document.getElementById('m-pn').value='';
   document.getElementById('m-hz').value=50;
   document.getElementById('m-ch').value=1;
@@ -1171,8 +1238,27 @@ function openSensorModal(){
 function closeSensorModal(){document.getElementById('sm').classList.remove('open');}
 function onStChange(){
   const m=SMETA[document.getElementById('m-st').value]||SMETA.ETC;
-  if(!document.getElementById('m-pn').value) document.getElementById('m-pn').value=m.pfx+'_1';
+  if(!document.getElementById('m-pn').value) document.getElementById('m-pn').value=m.mod;
   document.getElementById('m-hz').value=m.hz; onMHz();
+}
+function updateLabelPreview(){
+  const device = document.getElementById('m-dev').value||'M';
+  const slot   = document.getElementById('m-slot').value||'S1';
+  const mod    = document.getElementById('m-pn').value||'MOD';
+  const ch     = Math.min(16, parseInt(document.getElementById('m-ch').value)||1);
+  const hz     = parseFloat(document.getElementById('m-hz').value)||50;
+  const f      = F();
+  const isSub  = isSubcom(hz, f);
+  const sc     = isSub ? 1 : Math.max(1, Math.round(hz / f.mfr));
+  let preview;
+  if(ch===1){
+    preview = makeChannelLabel(device, slot, mod, 1, sc);
+  } else {
+    const first = makeChannelLabel(device, slot, mod, 1, sc);
+    const last  = makeChannelLabel(device, slot, mod, ch, sc);
+    preview = `${first}\n~ ${last}\n(총 ${ch}채널)`;
+  }
+  document.getElementById('m-label-preview').textContent = preview;
 }
 function onMHz(){
   const hz=parseFloat(document.getElementById('m-hz').value)||50;
@@ -1200,11 +1286,18 @@ function onMHz(){
   }
   txt+=` [MFR=${mfr} Hz]`;
   el.textContent=txt;
+  updateLabelPreview();
 }
 function saveSensor(){
-  const s={type:document.getElementById('m-st').value,name:document.getElementById('m-pn').value||'SENSOR',
-    hz:parseFloat(document.getElementById('m-hz').value)||50,ch:parseInt(document.getElementById('m-ch').value)||1,
-    note:document.getElementById('m-nt').value};
+  const s={
+    type: document.getElementById('m-st').value,
+    device: document.getElementById('m-dev').value||'M',
+    slot: document.getElementById('m-slot').value||'S1',
+    name: document.getElementById('m-pn').value||'MOD',
+    hz: parseFloat(document.getElementById('m-hz').value)||50,
+    ch: Math.min(16, parseInt(document.getElementById('m-ch').value)||1),
+    note: document.getElementById('m-nt').value
+  };
   if(editSIdx>=0) sensors[editSIdx]=s; else sensors.push(s);
   closeSensorModal(); renderSensors();
 }
@@ -1598,8 +1691,8 @@ function applyConfig(cfg){
   document.getElementById('bit_repr').value = cfg.bit_repr || 'NRZ-L';
 
   sensors = (cfg.sensors || []).map(s => ({
-    type:s.type, name:s.name, hz:s.hz, ch:s.ch,
-    dau:s.dau||'MDAU', note:s.note||''
+    type:s.type, device:s.device||'M', slot:s.slot||'S1',
+    name:s.name, hz:s.hz, ch:s.ch, note:s.note||''
   }));
   digital = (cfg.digital || []).map(d => ({
     type:d.type, name:d.name, hz:d.hz, bits:d.bits,
@@ -1637,21 +1730,24 @@ function loadSample(){
   document.getElementById('bit_repr').value='NRZ-L';
 
   sensors=[
-    {type:'ACCICP', name:'ACC_ICP_1',  hz:800, ch:12, note:''},
-    {type:'ACCICP', name:'ACC_ICP_2',  hz:800, ch:11, note:''},
-    {type:'PIEZO',  name:'PIEZO_1',    hz:800, ch:10, note:''},
-    {type:'PIEZO',  name:'PIEZO_2',    hz:800, ch:10, note:''},
-    {type:'RTD',    name:'RTD_1',      hz:50,  ch:32, note:'PT100'},
-    {type:'RTD',    name:'RTD_2',      hz:50,  ch:16, note:''},
-    {type:'RTD',    name:'RTD_3',      hz:50,  ch:16, note:''},
-    {type:'STR3W',  name:'STR3W_1',    hz:50,  ch:16, note:''},
-    {type:'STR4W',  name:'STR4W_1',    hz:50,  ch:12, note:''},
-    {type:'PRS',    name:'PRS_1',      hz:50,  ch:24, note:''},
-    {type:'ACCDC',  name:'ACC_DC_1',   hz:50,  ch:12, note:''},
-    {type:'VOLTAGE',name:'VOLT_1',     hz:50,  ch:12, note:''},
-    {type:'TC',     name:'TC_1',       hz:50,  ch:14, note:''},
-    {type:'RTD',    name:'RTD_SLOW',   hz:10,  ch:8,  note:'low-rate monitoring'},
-    {type:'TC',     name:'TC_SLOW',    hz:5,   ch:4,  note:'ambient temp'},
+    // Master Device — High-speed acquisition modules
+    {type:'ACCICP', device:'M',  slot:'S1', name:'ICP', hz:800, ch:12, note:''},
+    {type:'ACCICP', device:'M',  slot:'S2', name:'ICP', hz:800, ch:11, note:''},
+    {type:'PIEZO',  device:'M',  slot:'S3', name:'PZT', hz:800, ch:10, note:''},
+    {type:'PIEZO',  device:'M',  slot:'S4', name:'PZT', hz:800, ch:10, note:''},
+    // Slave 1 — Temperature & Strain
+    {type:'RTD',    device:'S1', slot:'S1', name:'RTD', hz:50,  ch:16, note:'PT100'},
+    {type:'RTD',    device:'S1', slot:'S2', name:'RTD', hz:50,  ch:16, note:''},
+    {type:'STR3W',  device:'S1', slot:'S3', name:'STR3',hz:50,  ch:16, note:''},
+    {type:'STR4W',  device:'S1', slot:'S4', name:'STR4',hz:50,  ch:12, note:''},
+    // Slave 2 — Pressure, DC voltage, Thermocouple
+    {type:'PRS',    device:'S2', slot:'S1', name:'PRS', hz:50,  ch:16, note:''},
+    {type:'ACCDC',  device:'S2', slot:'S2', name:'ACC', hz:50,  ch:12, note:''},
+    {type:'VOLTAGE',device:'S2', slot:'S3', name:'DC',  hz:50,  ch:12, note:''},
+    {type:'TC',     device:'S2', slot:'S4', name:'TC',  hz:50,  ch:14, note:''},
+    // Slow-rate subcom sensors (Master)
+    {type:'RTD',    device:'M',  slot:'S5', name:'RTD', hz:10,  ch:8,  note:'low-rate monitoring'},
+    {type:'TC',     device:'M',  slot:'S6', name:'TC',  hz:5,   ch:4,  note:'ambient temp'},
   ];
   digital=[
     {name:'ARINC429_BUS1',type:'ARINC429',hz:50,bits:256,note:'Nav bus (8 labels)'},
@@ -1686,7 +1782,7 @@ document.addEventListener('keydown',e=>{
 loadSample();
 
 // ── About modal ──
-const APP_VERSION = 'v1.0.0';
+const APP_VERSION = 'v1.1.0';
 function showAbout(){
   const el=document.getElementById('about-overlay');
   el.style.display='flex';

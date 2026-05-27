@@ -185,15 +185,21 @@ def allocate_channels(config: dict) -> dict:
         is_subcom = s["hz"] < mfr and Z > 1
         sc = 1 if is_subcom else max(1, round(s["hz"] / mfr))
         sub_ratio = max(1, round(mfr / s["hz"])) if is_subcom else 0
+        device = s.get("device", "M")
+        slot = s.get("slot", "S1")
+        module_name = s.get("name", "MOD")
+        sc_label = sc  # supercom multiplier in label (1 for normal/subcom)
         for ea in range(s["ch"]):
+            ch_num = ea + 1
+            label = f"{device}_{slot}_{module_name}-{ch_num:02d}-{sc_label}"
             params.append({
-                "name": f"{s['name']}_{ea + 1}" if s["ch"] > 1 else s["name"],
+                "name": label,
                 "type": s["type"],
                 "category": "sensor",
                 "hz": s["hz"],
                 "supercom": sc,
                 "subcom_ratio": sub_ratio,
-                "dau": s.get("dau", "MDAU"),
+                "dau": s.get("dau", device),
                 "note": s.get("note", ""),
                 "source": s,
             })
