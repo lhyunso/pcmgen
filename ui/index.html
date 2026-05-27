@@ -967,8 +967,9 @@ function buildRow(f,rowIdx,maxSc){
     const m=SMETA[s.type]||SMETA.ETC;
     const dev=s.device||'M', slt=s.slot||'S1', mod=s.name||'MOD';
     for(let i=0;i<s.ch;i++){
-      const lbl=makeChannelLabel(dev,slt,mod,i+1,sc_);
-      allSuper.push({sc:sc_,item:{label:lbl,color:m.color,subcom:false}});
+      // Store base label (no occurrence suffix yet — added at placement)
+      const base=`${dev}_${slt}_${mod}-${String(i+1).padStart(2,'0')}`;
+      allSuper.push({sc:sc_,base,color:m.color});
     }
   });
   digital.forEach(d=>{
@@ -976,10 +977,13 @@ function buildRow(f,rowIdx,maxSc){
     const sc_=supercom(d.hz,f); if(sc_<=1) return;
     const m=DMETA[d.type]||DMETA.DIGITAL;
     const ch=Math.ceil(d.bits/f.B);
-    for(let i=0;i<ch;i++) allSuper.push({sc:sc_,item:{label:ch>1?`${d.name}[${i+1}]`:d.name,color:m.color,subcom:false}});
+    for(let i=0;i<ch;i++){
+      const base=ch>1?`${d.name}[${i+1}]`:d.name;
+      allSuper.push({sc:sc_,base,color:m.color});
+    }
   });
   allSuper.sort((a,b)=>b.sc-a.sc);
-  allSuper.forEach(({sc,item})=>{
+  allSuper.forEach(({sc,base,color})=>{
     const spacing=Math.floor(W/sc);
     let placed=false;
     // Scan every possible starting offset within one spacing period
@@ -992,7 +996,8 @@ function buildRow(f,rowIdx,maxSc){
         positions.push(pos);
       }
       if(valid){
-        positions.forEach(pos=>claim(pos,{...item}));
+        // Each copy gets its occurrence index as suffix: base-1, base-2, …, base-N
+        positions.forEach((pos,k)=>claim(pos,{label:`${base}-${k+1}`,color,subcom:false}));
         placed=true;
         break;
       }
@@ -1000,7 +1005,7 @@ function buildRow(f,rowIdx,maxSc){
     if(!placed){
       // Overflow: place at first available (validate_config will warn)
       const pos=firstAvail(overhead,W);
-      if(pos>=0) claim(pos,{...item});
+      if(pos>=0) claim(pos,{label:`${base}-1`,color,subcom:false});
     }
   });
 
@@ -1250,15 +1255,38 @@ function updateLabelPreview(){
   const f      = F();
   const isSub  = isSubcom(hz, f);
   const sc     = isSub ? 1 : Math.max(1, Math.round(hz / f.mfr));
-  let preview;
-  if(ch===1){
-    preview = makeChannelLabel(device, slot, mod, 1, sc);
+
+  // Build preview lines
+  const lines = [];
+  if(sc > 1){
+    // Supercom: show occurrence range for first channel
+    const base1 = `${device}_${slot}_${mod}-01`;
+    lines.push(`슈퍼콤 ${sc}x — 채널당 ${sc}개 워드 위치:`);
+    lines.push(`  ${base1}-1  ← 1번째 슈퍼콤 그룹`);
+    lines.push(`  ${base1}-2`);
+    if(sc > 3) lines.push(`  ...`);
+    lines.push(`  ${base1}-${sc}  ← ${sc}번째 슈퍼콤 그룹`);
+    if(ch > 1){
+      const baseLast = `${device}_${slot}_${mod}-${String(ch).padStart(2,'0')}`;
+      lines.push(`  (채널 ${ch}번) ${baseLast}-1 ~ ${baseLast}-${sc}`);
+    }
+  } else if(isSub){
+    const first = makeChannelLabel(device, slot, mod, 1, 1);
+    lines.push(`서브콤 (MFR/${Math.max(1,Math.round(f.mfr/hz))}마다 등장):`);
+    lines.push(`  ${first}`);
+    if(ch > 1) lines.push(`  ~ ${makeChannelLabel(device, slot, mod, ch, 1)}`);
   } else {
-    const first = makeChannelLabel(device, slot, mod, 1, sc);
-    const last  = makeChannelLabel(device, slot, mod, ch, sc);
-    preview = `${first}\n~ ${last}\n(총 ${ch}채널)`;
+    // Normal 1x
+    const first = makeChannelLabel(device, slot, mod, 1, 1);
+    if(ch === 1){
+      lines.push(first);
+    } else {
+      lines.push(`${first}`);
+      lines.push(`~ ${makeChannelLabel(device, slot, mod, ch, 1)}`);
+      lines.push(`(총 ${ch}채널)`);
+    }
   }
-  document.getElementById('m-label-preview').textContent = preview;
+  document.getElementById('m-label-preview').textContent = lines.join('\n');
 }
 function onMHz(){
   const hz=parseFloat(document.getElementById('m-hz').value)||50;

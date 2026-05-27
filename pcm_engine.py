@@ -188,12 +188,12 @@ def allocate_channels(config: dict) -> dict:
         device = s.get("device", "M")
         slot = s.get("slot", "S1")
         module_name = s.get("name", "MOD")
-        sc_label = sc  # supercom multiplier in label (1 for normal/subcom)
         for ea in range(s["ch"]):
             ch_num = ea + 1
-            label = f"{device}_{slot}_{module_name}-{ch_num:02d}-{sc_label}"
+            # Base label (occurrence suffix appended at placement time)
+            base_label = f"{device}_{slot}_{module_name}-{ch_num:02d}"
             params.append({
-                "name": label,
+                "name": base_label,
                 "type": s["type"],
                 "category": "sensor",
                 "hz": s["hz"],
@@ -340,6 +340,7 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
     # For each channel, scan starting offsets until finding one where
     # every copy lands on a free slot.  This preserves equal spacing
     # even when higher-ratio params have already claimed some positions.
+    # Each copy gets a unique occurrence suffix: base-1, base-2, …, base-N
     for p in super_params:
         sc = p["supercom"]
         spacing = W // sc       # IRIG-106: evenly spaced across full frame W
@@ -349,8 +350,10 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
         for p0 in range(overhead, overhead + spacing):
             positions = [p0 + k * spacing for k in range(sc)]
             if all(pos < W and avail[pos] for pos in positions):
-                for pos in positions:
-                    claim(pos, _make_cell_from_param(p))
+                for k, pos in enumerate(positions):
+                    cell = _make_cell_from_param(p)
+                    cell["name"] = f"{p['name']}-{k + 1}"   # occurrence index
+                    claim(pos, cell)
                 placed = True
                 break
 
@@ -359,13 +362,18 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
             # (validate_config will report the overflow)
             pos = first_avail(overhead, W)
             if pos is not None:
-                claim(pos, _make_cell_from_param(p))
+                cell = _make_cell_from_param(p)
+                cell["name"] = f"{p['name']}-1"
+                claim(pos, cell)
 
     # ── Normal (1×): fill any remaining data-area position ──
+    # Occurrence is always 1 (appears once per minor frame)
     for p in normal_params:
         pos = first_avail(overhead, W)
         if pos is not None:
-            claim(pos, _make_cell_from_param(p))
+            cell = _make_cell_from_param(p)
+            cell["name"] = f"{p['name']}-1"
+            claim(pos, cell)
 
     # ── Subcom: each channel owns one dedicated word position ──
     # Appears at frames 0, R, 2R, … (starting at frame 0).
@@ -406,6 +414,7 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
             p = sched["param"]
             if mf_idx in sched["frames"]:
                 cell = _make_cell_from_param(p)
+                cell["name"] = f"{p['name']}-1"   # subcom: always occurrence 1
                 cell["subcom"] = True
                 cell["subcom_ratio"] = p["subcom_ratio"]
                 frame[word_pos] = cell
