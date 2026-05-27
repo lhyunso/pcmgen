@@ -149,9 +149,9 @@ def _write_param_sheet(wb: Workbook, config: dict, result: dict):
     ws = wb.create_sheet("Parameters")
     ws.sheet_properties.tabColor = "2D7D46"
 
-    headers = ["#", "Category", "Type", "Name", "Hz", "EA/Bits",
+    headers = ["#", "Category", "Type", "Name", "내용", "Hz", "EA/Bits",
                "Comm", "Words/Minor", "Note"]
-    widths = [5, 10, 14, 24, 8, 10, 14, 14, 30]
+    widths = [5, 10, 14, 24, 20, 8, 10, 14, 14, 30]
 
     for ci, h in enumerate(headers, 1):
         _styled_cell(ws, 1, ci, h, font=HEADER_FONT, fill=HEADER_FILL,
@@ -164,11 +164,21 @@ def _write_param_sheet(wb: Workbook, config: dict, result: dict):
         param_list = _build_param_list_from_config(config, result.get("stats", {}))
 
     for ri, p in enumerate(param_list, 2):
+        # Build 내용 = {device}_{slot}_{name}, e.g. "M_S1_ICP"
+        device = p.get("device", "")
+        slot = p.get("slot", "")
+        pname = p.get("name", "")
+        if device and slot:
+            naeyong = f"{device}_{slot}_{pname}"
+        else:
+            naeyong = pname
+
         vals = [
             p.get("idx", ri - 1),
             p.get("category", ""),
             p.get("type", ""),
-            p.get("name", ""),
+            pname,
+            naeyong,
             p.get("hz", ""),
             p.get("ea", ""),
             p.get("comm", "1x"),
@@ -192,7 +202,7 @@ def _write_param_sheet(wb: Workbook, config: dict, result: dict):
             cell = _styled_cell(ws, ri, ci, v,
                                 font=row_font if row_fill else NORMAL_FONT,
                                 fill=row_fill,
-                                alignment=CENTER if ci <= 8 else LEFT)
+                                alignment=CENTER if ci <= 9 else LEFT)
 
     # Totals row
     total_row = len(param_list) + 2
@@ -200,7 +210,7 @@ def _write_param_sheet(wb: Workbook, config: dict, result: dict):
                  fill=PatternFill("solid", fgColor="E2E8F0"), alignment=CENTER)
     total_wpm = sum(p.get("words_per_minor", 0) for p in param_list
                     if isinstance(p.get("words_per_minor"), (int, float)))
-    _styled_cell(ws, total_row, 8, total_wpm, font=BOLD_FONT,
+    _styled_cell(ws, total_row, 9, total_wpm, font=BOLD_FONT,
                  fill=PatternFill("solid", fgColor="E2E8F0"), alignment=CENTER)
     for ci in range(1, len(headers) + 1):
         ws.cell(row=total_row, column=ci).border = THIN_BORDER
@@ -232,7 +242,8 @@ def _build_param_list_from_config(config: dict, stats: dict):
         wpm = ch if is_sub else ch * sc_r
         param_list.append({
             "idx": idx, "category": "Sensor", "type": s.get("type", ""),
-            "name": s.get("name", ""), "hz": hz, "ea": ch,
+            "name": s.get("name", ""), "device": s.get("device", ""),
+            "slot": s.get("slot", ""), "hz": hz, "ea": ch,
             "comm": comm, "words_per_minor": wpm, "note": s.get("note", ""),
         })
         idx += 1
@@ -249,7 +260,8 @@ def _build_param_list_from_config(config: dict, stats: dict):
         wpm = ch if is_sub else ch * sc_r
         param_list.append({
             "idx": idx, "category": "Digital", "type": d.get("type", ""),
-            "name": d.get("name", ""), "hz": hz, "ea": f"{bits}bits",
+            "name": d.get("name", ""), "device": d.get("device", ""),
+            "slot": d.get("slot", ""), "hz": hz, "ea": f"{bits}bits",
             "comm": comm, "words_per_minor": wpm, "note": d.get("note", ""),
         })
         idx += 1
