@@ -416,8 +416,9 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
   </div>
   <table class="dt">
     <thead><tr>
-      <th>Name</th><th>Data Type</th><th>Sample Hz</th>
-      <th>Bits</th><th class="ca">Comm</th><th class="ca">Words/Minor</th><th>Note</th>
+      <th>Device</th><th>Slot</th><th>Module Name</th><th>Data Type</th>
+      <th>Sample Hz</th><th>Bits</th>
+      <th class="ca">Comm</th><th class="ca">Words/Minor</th><th>Note</th>
     </tr></thead>
     <tbody id="d-body"></tbody>
   </table>
@@ -556,20 +557,57 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
   <div class="mw">
     <div class="mh"><h3 id="dm-title">Add Digital Data</h3><button class="mc2" onclick="closeDigModal()">x</button></div>
     <div class="mb">
-      <div class="fr"><label>Data Name</label><input type="text" id="d-name" placeholder="e.g., ARINC429_BUS1"></div>
+      <!-- Device & Slot -->
       <div class="g2">
-        <div class="fr"><label>Data Type</label>
-          <select id="d-type" onchange="onDtChange()">
-            <option value="DISCRETE">Discrete</option>
-            <option value="ARINC429">ARINC 429</option>
-            <option value="1553B">MIL-STD-1553B</option>
-            <option value="RS422">RS-422/485</option>
-            <option value="LVDT">LVDT/RVDT</option>
-            <option value="RESOLVER">Resolver</option>
-            <option value="ENCODER">Encoder</option>
-            <option value="DIGITAL">Digital Other</option>
+        <div class="fr"><label>장치 (Device)</label>
+          <select id="d-dev" onchange="updateDigLabelPreview()">
+            <option value="M">M (Master)</option>
+            <option value="S1">S1 (Slave 1)</option>
+            <option value="S2">S2 (Slave 2)</option>
+            <option value="S3">S3 (Slave 3)</option>
+            <option value="S4">S4 (Slave 4)</option>
+            <option value="S5">S5 (Slave 5)</option>
+            <option value="S6">S6 (Slave 6)</option>
+            <option value="S7">S7 (Slave 7)</option>
+            <option value="S8">S8 (Slave 8)</option>
+            <option value="S9">S9 (Slave 9)</option>
           </select>
         </div>
+        <div class="fr"><label>모듈 위치 (Slot)</label>
+          <select id="d-slot" onchange="updateDigLabelPreview()">
+            <option value="S1">S1</option>
+            <option value="S2">S2</option>
+            <option value="S3">S3</option>
+            <option value="S4">S4</option>
+            <option value="S5">S5</option>
+            <option value="S6">S6</option>
+            <option value="S7">S7</option>
+            <option value="S8">S8</option>
+            <option value="S9">S9</option>
+            <option value="S10">S10</option>
+          </select>
+        </div>
+      </div>
+      <!-- Module Name (used in channel ID) -->
+      <div class="fr"><label>모듈 이름 (Module Name)</label>
+        <input type="text" id="d-name" placeholder="e.g., ARINC, DISC, 1553, RS422" oninput="updateDigLabelPreview()">
+      </div>
+      <!-- Data Type — free text with datalist suggestions -->
+      <div class="fr"><label>데이터 타입 (Data Type)</label>
+        <input type="text" id="d-type" list="d-type-list"
+          placeholder="ARINC429 / DISCRETE / 1553B / RS422 / LVDT ..."
+          oninput="onDtChange()" autocomplete="off">
+        <datalist id="d-type-list">
+          <option value="DISCRETE">
+          <option value="ARINC429">
+          <option value="1553B">
+          <option value="RS422">
+          <option value="LVDT">
+          <option value="RESOLVER">
+          <option value="ENCODER">
+          <option value="DIGITAL">
+        </datalist>
+        <div class="hint" id="d-type-hint">타입을 직접 입력하거나 목록에서 선택하세요</div>
       </div>
       <div class="g2">
         <div class="fr"><label>Sample Hz</label>
@@ -577,11 +615,16 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
         </div>
         <div class="fr"><label>Data Bits</label>
           <input type="number" id="d-bits" value="16" min="1" oninput="calcDCh()">
-          <div class="hint" id="d-bh">PCM channels = ceil(bits / word_length)</div>
+          <div class="hint" id="d-bh">PCM words = ceil(bits / word_length)</div>
         </div>
       </div>
-      <div class="fr"><label>PCM CH (auto)</label>
+      <div class="fr"><label>PCM Words (auto)</label>
         <input type="text" id="d-ch" readonly style="background:#F0F4F8;color:var(--text3)">
+      </div>
+      <!-- Channel ID Preview -->
+      <div class="fr" style="background:#F0F7FF;border:1px solid #93C5FD;border-radius:var(--r);padding:8px 10px;margin-bottom:7px">
+        <label style="color:#1D4ED8;font-weight:600;margin-bottom:4px">채널 ID 미리보기</label>
+        <div id="d-label-preview" style="font-family:monospace;font-size:11px;color:#0F4C81;word-break:break-all;line-height:1.6"></div>
       </div>
       <div class="fr"><label>Note</label><input type="text" id="d-nt" placeholder="optional"></div>
     </div>
@@ -630,14 +673,14 @@ const SMETA = {
   ETC:     {label:'Other',    color:'#C8C8C8', hz:50,  pfx:'SENSOR',   mod:'SEN'},
 };
 const DMETA = {
-  DISCRETE:{label:'Discrete', color:'#B0C4DE', bits:1},
-  ARINC429:{label:'ARINC 429',color:'#85C1E9', bits:32},
-  '1553B':  {label:'1553B',   color:'#82E0AA', bits:16},
-  RS422:   {label:'RS-422',   color:'#F0B27A', bits:8},
-  LVDT:    {label:'LVDT',     color:'#D7BDE2', bits:16},
-  RESOLVER:{label:'Resolver', color:'#A9CCE3', bits:16},
-  ENCODER: {label:'Encoder',  color:'#A9DFBF', bits:16},
-  DIGITAL: {label:'Digital',  color:'#AED6F1', bits:16},
+  DISCRETE:{label:'Discrete', color:'#B0C4DE', bits:1,  mod:'DISC'},
+  ARINC429:{label:'ARINC 429',color:'#85C1E9', bits:32, mod:'ARINC'},
+  '1553B':  {label:'1553B',   color:'#82E0AA', bits:16, mod:'1553'},
+  RS422:   {label:'RS-422',   color:'#F0B27A', bits:8,  mod:'RS422'},
+  LVDT:    {label:'LVDT',     color:'#D7BDE2', bits:16, mod:'LVDT'},
+  RESOLVER:{label:'Resolver', color:'#A9CCE3', bits:16, mod:'RSLV'},
+  ENCODER: {label:'Encoder',  color:'#A9DFBF', bits:16, mod:'ENC'},
+  DIGITAL: {label:'Digital',  color:'#AED6F1', bits:16, mod:'DIG'},
 };
 
 // ─────────────────────────────────────────────────
@@ -747,7 +790,7 @@ function buildConfig(){
     sync_pattern: f.sp,
     bit_repr: f.br,
     sensors: sensors.map(s=>({type:s.type,device:s.device||'M',slot:s.slot||'S1',name:s.name,hz:s.hz,ch:s.ch,note:s.note||''})),
-    digital: digital.map(d=>({type:d.type,name:d.name,hz:d.hz,bits:d.bits,dau:d.dau,note:d.note})),
+    digital: digital.map(d=>({device:d.device||'M',slot:d.slot||'S1',name:d.name,type:d.type,hz:d.hz,bits:d.bits,note:d.note||''})),
     bit_data: bitData.map(b=>({vl:b.vl,bytes:b.bytes,note:b.note})),
   };
   if(lockedBitrate>0) cfg.locked_bitrate = lockedBitrate;
@@ -975,10 +1018,12 @@ function buildRow(f,rowIdx,maxSc){
   digital.forEach(d=>{
     if(f.Z>1&&isSubcom(d.hz,f)) return;
     const sc_=supercom(d.hz,f); if(sc_<=1) return;
-    const m=DMETA[d.type]||DMETA.DIGITAL;
+    const typeKey=d.type.toUpperCase();
+    const m=DMETA[typeKey]||DMETA[d.type]||DMETA.DIGITAL;
+    const dev=d.device||'M', slt=d.slot||'S1', mod=d.name||'DIG';
     const ch=Math.ceil(d.bits/f.B);
     for(let i=0;i<ch;i++){
-      const base=ch>1?`${d.name}[${i+1}]`:d.name;
+      const base=`${dev}_${slt}_${mod}-${String(i+1).padStart(2,'0')}`;
       allSuper.push({sc:sc_,base,color:m.color});
     }
   });
@@ -1026,12 +1071,15 @@ function buildRow(f,rowIdx,maxSc){
   digital.forEach(d=>{
     if(f.Z>1&&isSubcom(d.hz,f)) return;
     if(supercom(d.hz,f)>1) return;
-    const m=DMETA[d.type]||DMETA.DIGITAL;
+    const typeKey=d.type.toUpperCase();
+    const m=DMETA[typeKey]||DMETA[d.type]||DMETA.DIGITAL;
+    const dev=d.device||'M', slt=d.slot||'S1', mod=d.name||'DIG';
     const ch=Math.ceil(d.bits/f.B);
     for(let i=0;i<ch;i++){
+      const lbl=makeChannelLabel(dev,slt,mod,i+1,1);
       let pos=firstAvail(overhead,slot0End);
       if(pos<0) pos=firstAvail(overhead,W);
-      if(pos>=0) claim(pos,{label:ch>1?`${d.name}[${i+1}]`:d.name,color:m.color,subcom:false});
+      if(pos>=0) claim(pos,{label:lbl,color:m.color,subcom:false});
     }
   });
   bitData.forEach(b=>{
@@ -1058,9 +1106,15 @@ function buildRow(f,rowIdx,maxSc){
       }
     });
     digital.filter(d=>isSubcom(d.hz,f)).forEach(d=>{
-      const m=DMETA[d.type]||DMETA.DIGITAL; const ch=Math.ceil(d.bits/f.B);
+      const typeKey=d.type.toUpperCase();
+      const m=DMETA[typeKey]||DMETA[d.type]||DMETA.DIGITAL;
+      const dev=d.device||'M', slt=d.slot||'S1', mod=d.name||'DIG';
+      const ch=Math.ceil(d.bits/f.B);
       const ratio=subcomRatio(d.hz,f);
-      for(let i=0;i<ch;i++) subParams.push({name:ch>1?`${d.name}[${i+1}]`:d.name,color:m.color,ratio});
+      for(let i=0;i<ch;i++){
+        const lbl=makeChannelLabel(dev,slt,mod,i+1,1);
+        subParams.push({name:lbl,color:m.color,ratio});
+      }
     });
     // Each subcom channel gets its own dedicated word position.
     // It appears at that position when rowIdx % ratio === 0, otherwise RSVD.
@@ -1336,7 +1390,8 @@ function saveSensor(){
 function renderDigital(){
   const f=F();
   document.getElementById('d-body').innerHTML=digital.map((d,i)=>{
-    const m=DMETA[d.type]||DMETA.DIGITAL;
+    const typeKey=d.type.toUpperCase();
+    const m=DMETA[typeKey]||DMETA[d.type]||DMETA.DIGITAL;
     const wordsPerSample=Math.ceil(d.bits/f.B);
     const isSub=isSubcom(d.hz,f);
     const sc=supercom(d.hz,f);
@@ -1352,15 +1407,19 @@ function renderDigital(){
       commLabel='1x';
       wordsMinor=`<strong>${wordsPerSample}</strong>`;
     }
+    const device=d.device||'M';
+    const slot=d.slot||'S1';
     return `<tr class="${selD===i?'sel':''}" onclick="selDig(${i})" ondblclick="editDigRow(${i})">
+      <td style="font-weight:700;color:var(--accent)">${device}</td>
+      <td style="font-weight:600;color:var(--text2)">${slot}</td>
       <td>${d.name}</td>
-      <td><span class="sdot" style="background:${m.color}"></span>${m.label}</td>
+      <td><span class="sdot" style="background:${m.color}"></span>${d.type}</td>
       <td>${d.hz}</td><td>${d.bits}</td>
       <td class="ca">${commLabel}</td>
       <td class="ca">${wordsMinor}</td>
       <td style="color:var(--text3)">${d.note||''}</td>
     </tr>`;
-  }).join('')||`<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text3)">Add digital data</td></tr>`;
+  }).join('')||`<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text3)">Add digital data</td></tr>`;
   document.getElementById('tc-d').textContent=digital.length;
   document.getElementById('b-ed').disabled=selD<0;
   document.getElementById('b-dd').disabled=selD<0;
@@ -1372,37 +1431,95 @@ function editDig(){editDigRow(selD);}
 function editDigRow(i){
   editDIdx=i; const d=digital[i];
   document.getElementById('dm-title').textContent='Edit Digital Data';
+  document.getElementById('d-dev').value=d.device||'M';
+  document.getElementById('d-slot').value=d.slot||'S1';
   document.getElementById('d-name').value=d.name;
   document.getElementById('d-type').value=d.type;
   document.getElementById('d-hz').value=d.hz;
   document.getElementById('d-bits').value=d.bits;
-  document.getElementById('d-nt').value=d.note;
+  document.getElementById('d-nt').value=d.note||'';
   calcDCh(); document.getElementById('dm').classList.add('open');
 }
 function openDigModal(){
   editDIdx=-1;
   document.getElementById('dm-title').textContent='Add Digital Data';
+  document.getElementById('d-dev').value='M';
+  document.getElementById('d-slot').value='S1';
   document.getElementById('d-name').value='';
-  document.getElementById('d-type').value='DISCRETE';
+  document.getElementById('d-type').value='';
   document.getElementById('d-hz').value=50;
-  document.getElementById('d-bits').value=1;
+  document.getElementById('d-bits').value=16;
   document.getElementById('d-nt').value='';
-  onDtChange(); document.getElementById('dm').classList.add('open');
+  document.getElementById('d-type-hint').textContent='타입을 직접 입력하거나 목록에서 선택하세요';
+  calcDCh(); document.getElementById('dm').classList.add('open');
 }
 function closeDigModal(){document.getElementById('dm').classList.remove('open');}
 function onDtChange(){
-  const m=DMETA[document.getElementById('d-type').value]||DMETA.DIGITAL;
-  document.getElementById('d-bits').value=m.bits; calcDCh();
+  const val=document.getElementById('d-type').value.trim().toUpperCase();
+  const m=DMETA[val];
+  const hint=document.getElementById('d-type-hint');
+  if(m){
+    // 알려진 타입 → 비트 수 자동 설정, 힌트 표시
+    document.getElementById('d-bits').value=m.bits;
+    hint.textContent=`${m.label} → 기본 ${m.bits} bit`;
+    hint.style.color='var(--c1)';
+    // 모듈 이름이 비어 있으면 기본값 제안
+    if(!document.getElementById('d-name').value)
+      document.getElementById('d-name').value=m.mod;
+  } else if(val){
+    hint.textContent='사용자 정의 타입 — 비트 수를 직접 입력하세요';
+    hint.style.color='var(--warn)';
+  } else {
+    hint.textContent='타입을 직접 입력하거나 목록에서 선택하세요';
+    hint.style.color='var(--text3)';
+  }
+  calcDCh();
 }
 function calcDCh(){
   const bits=parseInt(document.getElementById('d-bits').value)||1;
   const bpch=parseInt(document.getElementById('bits_per_ch').value)||16;
-  document.getElementById('d-ch').value=Math.ceil(bits/bpch)+' CH';
+  const words=Math.ceil(bits/bpch);
+  document.getElementById('d-ch').value=words+' word'+(words>1?'s':'');
+  updateDigLabelPreview();
+}
+function updateDigLabelPreview(){
+  const device = document.getElementById('d-dev').value||'M';
+  const slot   = document.getElementById('d-slot').value||'S1';
+  const mod    = document.getElementById('d-name').value||'DIG';
+  const bits   = parseInt(document.getElementById('d-bits').value)||16;
+  const bpch   = parseInt(document.getElementById('bits_per_ch').value)||16;
+  const words  = Math.ceil(bits/bpch);   // number of PCM word positions
+  const hz     = parseFloat(document.getElementById('d-hz').value)||50;
+  const f      = F();
+  const isSub  = isSubcom(hz, f);
+  const sc     = isSub ? 1 : Math.max(1, Math.round(hz / f.mfr));
+
+  const lines = [];
+  if(sc > 1){
+    const base1=`${device}_${slot}_${mod}-01`;
+    lines.push(`슈퍼콤 ${sc}x — 워드당 ${sc}개 위치:`);
+    lines.push(`  ${base1}-1 ~ ${base1}-${sc}`);
+    if(words>1) lines.push(`  (총 ${words} words × ${sc}x)`);
+  } else if(isSub){
+    lines.push(`서브콤 1/${Math.max(1,Math.round(f.mfr/hz))}:`);
+    for(let i=1;i<=Math.min(words,3);i++) lines.push(`  ${device}_${slot}_${mod}-${String(i).padStart(2,'0')}-1`);
+    if(words>3) lines.push(`  ...`);
+  } else {
+    for(let i=1;i<=Math.min(words,4);i++) lines.push(`  ${device}_${slot}_${mod}-${String(i).padStart(2,'0')}-1`);
+    if(words>4) lines.push(`  ... (총 ${words} words)`);
+  }
+  document.getElementById('d-label-preview').textContent=lines.join('\n');
 }
 function saveDig(){
-  const d={name:document.getElementById('d-name').value||'DIGITAL',type:document.getElementById('d-type').value,
-    hz:parseFloat(document.getElementById('d-hz').value)||50,bits:parseInt(document.getElementById('d-bits').value)||16,
-    note:document.getElementById('d-nt').value};
+  const d={
+    device: document.getElementById('d-dev').value||'M',
+    slot:   document.getElementById('d-slot').value||'S1',
+    name:   document.getElementById('d-name').value||'DIG',
+    type:   document.getElementById('d-type').value||'DIGITAL',
+    hz:     parseFloat(document.getElementById('d-hz').value)||50,
+    bits:   parseInt(document.getElementById('d-bits').value)||16,
+    note:   document.getElementById('d-nt').value
+  };
   if(editDIdx>=0) digital[editDIdx]=d; else digital.push(d);
   closeDigModal(); renderDigital();
 }
@@ -1723,8 +1840,8 @@ function applyConfig(cfg){
     name:s.name, hz:s.hz, ch:s.ch, note:s.note||''
   }));
   digital = (cfg.digital || []).map(d => ({
-    type:d.type, name:d.name, hz:d.hz, bits:d.bits,
-    dau:d.dau||'MDAU', note:d.note||''
+    device:d.device||'M', slot:d.slot||'S1',
+    name:d.name, type:d.type, hz:d.hz, bits:d.bits, note:d.note||''
   }));
   bitData = (cfg.bit_data || []).map(b => ({
     vl:b.vl, bytes:b.bytes, note:b.note||''
@@ -1778,9 +1895,9 @@ function loadSample(){
     {type:'TC',     device:'M',  slot:'S6', name:'TC',  hz:5,   ch:4,  note:'ambient temp'},
   ];
   digital=[
-    {name:'ARINC429_BUS1',type:'ARINC429',hz:50,bits:256,note:'Nav bus (8 labels)'},
-    {name:'DISCRETE_SYS', type:'DISCRETE',hz:50,bits:16, note:'16 discrete channels'},
-    {name:'ENCODER_POS',  type:'ENCODER', hz:50,bits:16, note:'Control surface position'},
+    {device:'M',  slot:'S1', name:'ARINC', type:'ARINC429', hz:50, bits:256, note:'Nav bus (8 labels)'},
+    {device:'M',  slot:'S2', name:'DISC',  type:'DISCRETE',  hz:50, bits:16,  note:'System discretes'},
+    {device:'S1', slot:'S1', name:'ENC',   type:'ENCODER',   hz:50, bits:16,  note:'Control surface position'},
   ];
   bitData=[
     {vl:1,bytes:20,note:'MIL-STD-1553B BUS A'},
