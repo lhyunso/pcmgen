@@ -183,7 +183,7 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
   <div onclick="event.stopPropagation()" style="background:#fff;border-radius:10px;padding:28px 32px;min-width:300px;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,.25);text-align:center">
     <div style="font-size:22px;font-weight:700;color:#0F4C81;margin-bottom:4px">PCM Channel Config Generator</div>
     <div style="font-size:13px;color:#4A5568;margin-bottom:16px">IRIG 106 Ch.4 Compliant</div>
-    <div style="display:inline-block;background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;border-radius:20px;padding:5px 20px;font-size:18px;font-weight:700;letter-spacing:1px;margin-bottom:16px">v1.1.5</div>
+    <div style="display:inline-block;background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;border-radius:20px;padding:5px 20px;font-size:18px;font-weight:700;letter-spacing:1px;margin-bottom:16px">v1.1.6</div>
     <div style="font-size:11px;color:#718096;line-height:1.7">
       © 2025 단암시스템즈 (Danam Systems)<br>
       Supercom: intelligent equidistant placement<br>
@@ -796,6 +796,21 @@ function _compactWords(pos){
   const MAX=3;
   const head=ranges.slice(0,MAX).map(fmt).join(', ');
   return ranges.length<=MAX?head:head+'…';
+}
+
+// Full word position string for export (no W prefix, complete ranges)
+// e.g. [4,5,6,7,84,85,86,87] → "4~7, 84~87"
+function _formatWordPosExport(positions){
+  if(!positions||positions.length===0) return '';
+  const s=[...positions].sort((a,b)=>a-b);
+  const ranges=[];
+  let rs=s[0],re=s[0];
+  for(let i=1;i<s.length;i++){
+    if(s[i]===re+1){ re=s[i]; }
+    else{ ranges.push(rs===re?`${rs}`:`${rs}~${re}`); rs=re=s[i]; }
+  }
+  ranges.push(rs===re?`${rs}`:`${rs}~${re}`);
+  return ranges.join(', ');
 }
 
 // Build word cell HTML for sensor/digital/bit table rows
@@ -1785,12 +1800,15 @@ async function doGenerate(){
         }
       }
 
+      // Build word position map early so param_list can include positions
+      const _wMap = buildWordMap(frames);
+
       // Build param_list for export
       const paramList = [];
       const mfr = f.mhz * f.Z;
       const wordBytes = f.B / 8;
       let pidx = 1;
-      sensors.forEach(s => {
+      sensors.forEach((s, si) => {
         const sc_ = s.hz / mfr;
         const isSub = sc_ < 1;
         const scR = isSub ? 1 : Math.round(sc_);
@@ -1800,9 +1818,10 @@ async function doGenerate(){
         const m = SMETA[s.type] || SMETA.ETC;
         paramList.push({idx:pidx++, category:'Sensor', type:m.label, name:s.name,
           device:s.device||'M', slot:s.slot||'S1',
-          hz:s.hz, ea:s.ch, comm:comm, words_per_minor:wpm, color:m.color, note:s.note||''});
+          hz:s.hz, ea:s.ch, comm:comm, words_per_minor:wpm, color:m.color, note:s.note||'',
+          word_positions: _formatWordPosExport(_wMap ? _wMap.sensors[si] : null)});
       });
-      digital.forEach(d => {
+      digital.forEach((d, di) => {
         const sc_ = d.hz / mfr;
         const ch = Math.ceil(d.bits / f.B);
         const isSub = sc_ < 1;
@@ -1813,12 +1832,14 @@ async function doGenerate(){
         const m = DMETA[d.type] || DMETA.DIGITAL;
         paramList.push({idx:pidx++, category:'Digital', type:m.label, name:d.type,
           device:d.device||'M', slot:d.slot||'S1',
-          hz:d.hz, ea:`${d.bits}bits`, comm:comm, words_per_minor:wpm, color:m.color, note:d.note||''});
+          hz:d.hz, ea:`${d.bits}bits`, comm:comm, words_per_minor:wpm, color:m.color, note:d.note||'',
+          word_positions: _formatWordPosExport(_wMap ? _wMap.digital[di] : null)});
       });
-      bitData.forEach(b => {
+      bitData.forEach((b, bi) => {
         const ch = Math.ceil(b.bytes / wordBytes);
         paramList.push({idx:pidx++, category:'BIT', type:'VL', name:`VL#${b.vl}`,
-          hz:'-', ea:`${b.bytes}bytes`, comm:'Sub', words_per_minor:ch, color:'#A0A0A0', note:b.note||''});
+          hz:'-', ea:`${b.bytes}bytes`, comm:'Sub', words_per_minor:ch, color:'#A0A0A0', note:b.note||'',
+          word_positions: _formatWordPosExport(_wMap ? _wMap.bits[bi] : null)});
       });
 
       // Build legend from actual data
@@ -1960,25 +1981,11 @@ function doExportCSV(){
   const mfr = f.mhz * f.Z;
   const wordBytes = f.B / 8;
   let idx = 1;
-  lines.push('#,Category,Type,Name,Hz,EA,Comm,Words/Minor,Note');
-  sensors.forEach(se => {
-    const sc = se.hz / mfr;
-    const isSub = sc < 1;
-    const comm = isSub ? `Sub 1/${Math.round(1/sc)}` : sc > 1 ? `Super ${Math.round(sc)}x` : '1x';
-    const wpm = isSub ? se.ch : se.ch * Math.round(sc);
-    lines.push(`${idx++},Sensor,${se.type},${se.name},${se.hz},${se.ch},${comm},${wpm},"${se.note||''}"`);
-  });
-  digital.forEach(d => {
-    const sc = d.hz / mfr;
-    const ch = Math.ceil(d.bits / f.B);
-    const isSub = sc < 1;
-    const comm = isSub ? `Sub 1/${Math.round(1/sc)}` : sc > 1 ? `Super ${Math.round(sc)}x` : '1x';
-    const wpm = isSub ? ch : ch * Math.round(sc);
-    lines.push(`${idx++},Digital,${d.type},${d.type},${d.hz},${d.bits}bits,${comm},${wpm},"${d.note||''}"`);
-  });
-  bitData.forEach(b => {
-    const ch = Math.ceil(b.bytes / wordBytes);
-    lines.push(`${idx++},BIT,VL,VL#${b.vl},,${b.bytes}bytes,Sub,${ch},"${b.note||''}"`);
+  lines.push('#,Category,Type,Name,내용,Hz,EA,Comm,Words/Minor,Note,Word #');
+  const _pList = lastResult.param_list || [];
+  _pList.forEach(p => {
+    const wp = p.word_positions || '';
+    lines.push(`${p.idx},${p.category},${p.type},"${p.name}","${p.device||''}${p.slot?'_'+p.slot:''}${p.name?'_'+p.name:''}",${p.hz},${p.ea},${p.comm},${p.words_per_minor},"${p.note||''}","${wp}"`);
   });
   lines.push('');
 
@@ -2115,7 +2122,7 @@ document.addEventListener('keydown',e=>{
 loadSample();
 
 // ── About modal ──
-const APP_VERSION = 'v1.1.5';
+const APP_VERSION = 'v1.1.6';
 function showAbout(){
   const el=document.getElementById('about-overlay');
   el.style.display='flex';

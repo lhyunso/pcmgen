@@ -150,8 +150,8 @@ def _write_param_sheet(wb: Workbook, config: dict, result: dict):
     ws.sheet_properties.tabColor = "2D7D46"
 
     headers = ["#", "Category", "Type", "Name", "내용", "Hz", "EA/Bits",
-               "Comm", "Words/Minor", "Note"]
-    widths = [5, 10, 14, 24, 20, 8, 10, 14, 14, 30]
+               "Comm", "Words/Minor", "Note", "Word #"]
+    widths = [5, 10, 14, 24, 20, 8, 10, 14, 14, 30, 55]
 
     for ci, h in enumerate(headers, 1):
         _styled_cell(ws, 1, ci, h, font=HEADER_FONT, fill=HEADER_FILL,
@@ -184,6 +184,7 @@ def _write_param_sheet(wb: Workbook, config: dict, result: dict):
             p.get("comm", "1x"),
             p.get("words_per_minor", ""),
             p.get("note", ""),
+            p.get("word_positions", ""),
         ]
 
         # Color the row based on sensor color
@@ -202,7 +203,7 @@ def _write_param_sheet(wb: Workbook, config: dict, result: dict):
             cell = _styled_cell(ws, ri, ci, v,
                                 font=row_font if row_fill else NORMAL_FONT,
                                 fill=row_fill,
-                                alignment=CENTER if ci <= 9 else LEFT)
+                                alignment=LEFT if ci in (10, 11) else CENTER)
 
     # Totals row
     total_row = len(param_list) + 2
