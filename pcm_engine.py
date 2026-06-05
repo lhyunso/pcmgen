@@ -204,8 +204,8 @@ def allocate_channels(config: dict) -> dict:
                 "source": s,
             })
 
-    # Digital label format: {device}_{slot}_{module}-{dt_idx:02d}-{word_idx:02d}
-    # dt_idx: sequential number among entries sharing the same (device, slot, module_name)
+    # Digital label format: {device}_{slot}_{type}-{dt_idx:02d}-{word_idx:02d}
+    # dt_idx: sequential number among entries sharing the same (device, slot) slot
     _dt_counters: dict = {}
     for d in digital_data:
         ch_count = math.ceil(d["bits"] / B)
@@ -214,15 +214,15 @@ def allocate_channels(config: dict) -> dict:
         sub_ratio = max(1, round(mfr / d["hz"])) if is_subcom else 0
         device = d.get("device", "M")
         slot = d.get("slot", "S1")
-        module_name = d.get("name", "DIG")
+        type_name = d.get("type", "DIG").strip()
 
-        group_key = (device, slot, module_name)
+        group_key = (device, slot)      # grouped by slot, not module name
         _dt_counters[group_key] = _dt_counters.get(group_key, 0) + 1
         dt_idx = _dt_counters[group_key]
 
         for ci in range(ch_count):
             word_idx = ci + 1
-            label = f"{device}_{slot}_{module_name}-{dt_idx:02d}-{word_idx:02d}"
+            label = f"{device}_{slot}_{type_name}-{dt_idx:02d}-{word_idx:02d}"
             params.append({
                 "name": label,
                 "type": d["type"],
@@ -566,7 +566,7 @@ def _build_param_list(config: dict, frame_hz: float, B: int) -> list[dict]:
                 "idx": ch_idx,
                 "category": "Digital Data",
                 "type": d["type"],
-                "name": d["name"],
+                "name": d.get("name", d.get("type", "DIG")),
                 "hz": d["hz"],
                 "bits": d["bits"],
                 "supercom": 0,
@@ -582,7 +582,7 @@ def _build_param_list(config: dict, frame_hz: float, B: int) -> list[dict]:
                 "idx": ch_idx,
                 "category": "Digital Data",
                 "type": d["type"],
-                "name": d["name"],
+                "name": d.get("name", d.get("type", "DIG")),
                 "hz": d["hz"],
                 "bits": d["bits"],
                 "supercom": sc,
