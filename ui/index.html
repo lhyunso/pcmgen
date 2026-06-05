@@ -416,7 +416,7 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
   </div>
   <table class="dt">
     <thead><tr>
-      <th>Device</th><th>Slot</th><th>Module Name</th><th>Data Type</th>
+      <th>Device</th><th>Slot</th><th>Module Name</th><th style="width:52px;text-align:center">Data #</th><th>Data Type</th>
       <th>Sample Hz</th><th>Bits</th>
       <th class="ca">Comm</th><th class="ca">Words/Minor</th><th>Note</th>
     </tr></thead>
@@ -1003,6 +1003,15 @@ function buildRow(f,rowIdx,maxSc){
   //    and use the first one where every copy p0, p0+spacing, …, p0+(sc-1)*spacing
   //    is free. This guarantees equal spacing even when higher-ratio params already
   //    occupy some slots — no nearestAvail fallback that would break decommutation.
+
+  // Build dt_idx map for digital entries: same (device+slot+name) group → sequential 01,02,03…
+  const _dtCounters={};
+  const digitalTypeMap=digital.map(d=>{
+    const key=`${d.device||'M'}|${d.slot||'S1'}|${d.name||'DIG'}`;
+    _dtCounters[key]=(_dtCounters[key]||0)+1;
+    return _dtCounters[key];
+  });
+
   const allSuper=[];
   sensors.forEach(s=>{
     if(f.Z>1&&isSubcom(s.hz,f)) return;
@@ -1012,23 +1021,25 @@ function buildRow(f,rowIdx,maxSc){
     for(let i=0;i<s.ch;i++){
       // Store base label (no occurrence suffix yet — added at placement)
       const base=`${dev}_${slt}_${mod}-${String(i+1).padStart(2,'0')}`;
-      allSuper.push({sc:sc_,base,color:m.color});
+      allSuper.push({sc:sc_,base,color:m.color,complete:false});
     }
   });
-  digital.forEach(d=>{
+  digital.forEach((d,di)=>{
     if(f.Z>1&&isSubcom(d.hz,f)) return;
     const sc_=supercom(d.hz,f); if(sc_<=1) return;
     const typeKey=d.type.toUpperCase();
     const m=DMETA[typeKey]||DMETA[d.type]||DMETA.DIGITAL;
     const dev=d.device||'M', slt=d.slot||'S1', mod=d.name||'DIG';
     const ch=Math.ceil(d.bits/f.B);
+    const dtIdx=String(digitalTypeMap[di]).padStart(2,'0');
     for(let i=0;i<ch;i++){
-      const base=`${dev}_${slt}_${mod}-${String(i+1).padStart(2,'0')}`;
-      allSuper.push({sc:sc_,base,color:m.color});
+      // Digital: complete label {device}_{slot}_{module}-{dt_idx:02d}-{word_idx:02d}
+      const lbl=`${dev}_${slt}_${mod}-${dtIdx}-${String(i+1).padStart(2,'0')}`;
+      allSuper.push({sc:sc_,base:lbl,color:m.color,complete:true});
     }
   });
   allSuper.sort((a,b)=>b.sc-a.sc);
-  allSuper.forEach(({sc,base,color})=>{
+  allSuper.forEach(({sc,base,color,complete})=>{
     const spacing=Math.floor(W/sc);
     let placed=false;
     // Scan every possible starting offset within one spacing period
@@ -1041,8 +1052,11 @@ function buildRow(f,rowIdx,maxSc){
         positions.push(pos);
       }
       if(valid){
-        // Each copy gets its occurrence index as suffix: base-1, base-2, …, base-N
-        positions.forEach((pos,k)=>claim(pos,{label:`${base}-${k+1}`,color,subcom:false}));
+        positions.forEach((pos,k)=>{
+          // Sensor: append occurrence index (base-1 … base-N)
+          // Digital: label is already complete, all copies share same label
+          claim(pos,{label:complete?base:`${base}-${k+1}`,color,subcom:false});
+        });
         placed=true;
         break;
       }
@@ -1050,7 +1064,7 @@ function buildRow(f,rowIdx,maxSc){
     if(!placed){
       // Overflow: place at first available (validate_config will warn)
       const pos=firstAvail(overhead,W);
-      if(pos>=0) claim(pos,{label:`${base}-1`,color,subcom:false});
+      if(pos>=0) claim(pos,{label:complete?base:`${base}-1`,color,subcom:false});
     }
   });
 
@@ -1068,15 +1082,16 @@ function buildRow(f,rowIdx,maxSc){
       if(pos>=0) claim(pos,{label:lbl,color:m.color,subcom:false});
     }
   });
-  digital.forEach(d=>{
+  digital.forEach((d,di)=>{
     if(f.Z>1&&isSubcom(d.hz,f)) return;
     if(supercom(d.hz,f)>1) return;
     const typeKey=d.type.toUpperCase();
     const m=DMETA[typeKey]||DMETA[d.type]||DMETA.DIGITAL;
     const dev=d.device||'M', slt=d.slot||'S1', mod=d.name||'DIG';
     const ch=Math.ceil(d.bits/f.B);
+    const dtIdx=String(digitalTypeMap[di]).padStart(2,'0');
     for(let i=0;i<ch;i++){
-      const lbl=makeChannelLabel(dev,slt,mod,i+1,1);
+      const lbl=`${dev}_${slt}_${mod}-${dtIdx}-${String(i+1).padStart(2,'0')}`;
       let pos=firstAvail(overhead,slot0End);
       if(pos<0) pos=firstAvail(overhead,W);
       if(pos>=0) claim(pos,{label:lbl,color:m.color,subcom:false});
@@ -1105,14 +1120,16 @@ function buildRow(f,rowIdx,maxSc){
         subParams.push({name:lbl,color:m.color,ratio});
       }
     });
-    digital.filter(d=>isSubcom(d.hz,f)).forEach(d=>{
+    digital.forEach((d,di)=>{
+      if(!isSubcom(d.hz,f)) return;
       const typeKey=d.type.toUpperCase();
       const m=DMETA[typeKey]||DMETA[d.type]||DMETA.DIGITAL;
       const dev=d.device||'M', slt=d.slot||'S1', mod=d.name||'DIG';
       const ch=Math.ceil(d.bits/f.B);
       const ratio=subcomRatio(d.hz,f);
+      const dtIdx=String(digitalTypeMap[di]).padStart(2,'0');
       for(let i=0;i<ch;i++){
-        const lbl=makeChannelLabel(dev,slt,mod,i+1,1);
+        const lbl=`${dev}_${slt}_${mod}-${dtIdx}-${String(i+1).padStart(2,'0')}`;
         subParams.push({name:lbl,color:m.color,ratio});
       }
     });
@@ -1389,6 +1406,17 @@ function saveSensor(){
 // ─────────────────────────────────────────────────
 function renderDigital(){
   const f=F();
+  // Build dt_idx per entry and group metadata for visual grouping
+  const _dtC2={};
+  const _groupColors=['','rgba(219,234,254,0.35)'];  // alternating group tints
+  const _groupIdx={};  // group_key → sequential group number (0-based)
+  let _gCount=0;
+  const _dtRows=digital.map((d,i)=>{
+    const key=`${d.device||'M'}|${d.slot||'S1'}|${d.name||'DIG'}`;
+    _dtC2[key]=(_dtC2[key]||0)+1;
+    if(_groupIdx[key]===undefined){ _groupIdx[key]=_gCount++; }
+    return {dtIdx:_dtC2[key], groupKey:key, groupNum:_groupIdx[key], isFirst:_dtC2[key]===1};
+  });
   document.getElementById('d-body').innerHTML=digital.map((d,i)=>{
     const typeKey=d.type.toUpperCase();
     const m=DMETA[typeKey]||DMETA[d.type]||DMETA.DIGITAL;
@@ -1409,17 +1437,22 @@ function renderDigital(){
     }
     const device=d.device||'M';
     const slot=d.slot||'S1';
-    return `<tr class="${selD===i?'sel':''}" onclick="selDig(${i})" ondblclick="editDigRow(${i})">
+    const row=_dtRows[i];
+    const dtBadge=`<span style="display:inline-block;background:#DBEAFE;color:#1E40AF;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700">${String(row.dtIdx).padStart(2,'0')}</span>`;
+    const rowBg=_groupColors[row.groupNum%2];
+    const topBorder=row.isFirst?'border-top:2px solid #93C5FD;':'';
+    return `<tr class="${selD===i?'sel':''}" onclick="selDig(${i})" ondblclick="editDigRow(${i})" style="${rowBg}${topBorder}">
       <td style="font-weight:700;color:var(--accent)">${device}</td>
       <td style="font-weight:600;color:var(--text2)">${slot}</td>
       <td>${d.name}</td>
+      <td style="text-align:center">${dtBadge}</td>
       <td><span class="sdot" style="background:${m.color}"></span>${d.type}</td>
       <td>${d.hz}</td><td>${d.bits}</td>
       <td class="ca">${commLabel}</td>
       <td class="ca">${wordsMinor}</td>
       <td style="color:var(--text3)">${d.note||''}</td>
     </tr>`;
-  }).join('')||`<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text3)">Add digital data</td></tr>`;
+  }).join('')||`<tr><td colspan="10" style="padding:20px;text-align:center;color:var(--text3)">Add digital data</td></tr>`;
   document.getElementById('tc-d').textContent=digital.length;
   document.getElementById('b-ed').disabled=selD<0;
   document.getElementById('b-dd').disabled=selD<0;
@@ -1494,18 +1527,34 @@ function updateDigLabelPreview(){
   const isSub  = isSubcom(hz, f);
   const sc     = isSub ? 1 : Math.max(1, Math.round(hz / f.mfr));
 
+  // Compute dt_idx: how many entries with same device+slot+name exist before current edit position
+  const groupKey=`${device}|${slot}|${mod}`;
+  let dtIdx=1;
+  if(editDIdx<0){
+    // Adding new: count existing entries in same group + 1
+    dtIdx=digital.filter(d=>`${d.device||'M'}|${d.slot||'S1'}|${d.name||'DIG'}`===groupKey).length+1;
+  } else {
+    // Editing: count entries in same group up to and including this index
+    let cnt=0;
+    for(let j=0;j<=editDIdx;j++){
+      const d=digital[j];
+      if(`${d.device||'M'}|${d.slot||'S1'}|${d.name||'DIG'}`===groupKey) cnt++;
+    }
+    dtIdx=cnt;
+  }
+  const dtStr=String(dtIdx).padStart(2,'0');
+
   const lines = [];
   if(sc > 1){
-    const base1=`${device}_${slot}_${mod}-01`;
-    lines.push(`슈퍼콤 ${sc}x — 워드당 ${sc}개 위치:`);
-    lines.push(`  ${base1}-1 ~ ${base1}-${sc}`);
-    if(words>1) lines.push(`  (총 ${words} words × ${sc}x)`);
+    lines.push(`슈퍼콤 ${sc}x — 같은 레이블 ${sc}개 위치:`);
+    for(let i=1;i<=Math.min(words,3);i++) lines.push(`  ${device}_${slot}_${mod}-${dtStr}-${String(i).padStart(2,'0')}`);
+    if(words>3) lines.push(`  ... (총 ${words} words × ${sc}x = ${words*sc} 위치)`);
   } else if(isSub){
     lines.push(`서브콤 1/${Math.max(1,Math.round(f.mfr/hz))}:`);
-    for(let i=1;i<=Math.min(words,3);i++) lines.push(`  ${device}_${slot}_${mod}-${String(i).padStart(2,'0')}-1`);
+    for(let i=1;i<=Math.min(words,3);i++) lines.push(`  ${device}_${slot}_${mod}-${dtStr}-${String(i).padStart(2,'0')}`);
     if(words>3) lines.push(`  ...`);
   } else {
-    for(let i=1;i<=Math.min(words,4);i++) lines.push(`  ${device}_${slot}_${mod}-${String(i).padStart(2,'0')}-1`);
+    for(let i=1;i<=Math.min(words,4);i++) lines.push(`  ${device}_${slot}_${mod}-${dtStr}-${String(i).padStart(2,'0')}`);
     if(words>4) lines.push(`  ... (총 ${words} words)`);
   }
   document.getElementById('d-label-preview').textContent=lines.join('\n');

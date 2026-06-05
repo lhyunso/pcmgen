@@ -204,6 +204,9 @@ def allocate_channels(config: dict) -> dict:
                 "source": s,
             })
 
+    # Digital label format: {device}_{slot}_{module}-{dt_idx:02d}-{word_idx:02d}
+    # dt_idx: sequential number among entries sharing the same (device, slot, module_name)
+    _dt_counters: dict = {}
     for d in digital_data:
         ch_count = math.ceil(d["bits"] / B)
         is_subcom = d["hz"] < mfr and Z > 1
@@ -212,11 +215,16 @@ def allocate_channels(config: dict) -> dict:
         device = d.get("device", "M")
         slot = d.get("slot", "S1")
         module_name = d.get("name", "DIG")
+
+        group_key = (device, slot, module_name)
+        _dt_counters[group_key] = _dt_counters.get(group_key, 0) + 1
+        dt_idx = _dt_counters[group_key]
+
         for ci in range(ch_count):
-            ch_num = ci + 1
-            base_label = f"{device}_{slot}_{module_name}-{ch_num:02d}"
+            word_idx = ci + 1
+            label = f"{device}_{slot}_{module_name}-{dt_idx:02d}-{word_idx:02d}"
             params.append({
-                "name": base_label,
+                "name": label,
                 "type": d["type"],
                 "category": "digital",
                 "hz": d["hz"],
@@ -225,6 +233,7 @@ def allocate_channels(config: dict) -> dict:
                 "dau": d.get("dau", device),
                 "note": d.get("note", ""),
                 "source": d,
+                "label_complete": True,   # label is final — no occurrence suffix
             })
 
     for b in bit_data:
@@ -357,7 +366,10 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
             if all(pos < W and avail[pos] for pos in positions):
                 for k, pos in enumerate(positions):
                     cell = _make_cell_from_param(p)
-                    cell["name"] = f"{p['name']}-{k + 1}"   # occurrence index
+                    if p.get("label_complete"):
+                        cell["name"] = p["name"]          # digital: label already final
+                    else:
+                        cell["name"] = f"{p['name']}-{k + 1}"  # sensor: occurrence index
                     claim(pos, cell)
                 placed = True
                 break
@@ -368,16 +380,21 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
             pos = first_avail(overhead, W)
             if pos is not None:
                 cell = _make_cell_from_param(p)
-                cell["name"] = f"{p['name']}-1"
+                if p.get("label_complete"):
+                    cell["name"] = p["name"]
+                else:
+                    cell["name"] = f"{p['name']}-1"
                 claim(pos, cell)
 
     # ── Normal (1×): fill any remaining data-area position ──
-    # Occurrence is always 1 (appears once per minor frame)
     for p in normal_params:
         pos = first_avail(overhead, W)
         if pos is not None:
             cell = _make_cell_from_param(p)
-            cell["name"] = f"{p['name']}-1"
+            if p.get("label_complete"):
+                cell["name"] = p["name"]      # digital: label already final
+            else:
+                cell["name"] = f"{p['name']}-1"   # sensor: occurrence = 1
             claim(pos, cell)
 
     # ── Subcom: each channel owns one dedicated word position ──
@@ -419,7 +436,10 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
             p = sched["param"]
             if mf_idx in sched["frames"]:
                 cell = _make_cell_from_param(p)
-                cell["name"] = f"{p['name']}-1"   # subcom: always occurrence 1
+                if p.get("label_complete"):
+                    cell["name"] = p["name"]       # digital: label already final
+                else:
+                    cell["name"] = f"{p['name']}-1"   # sensor: occurrence = 1
                 cell["subcom"] = True
                 cell["subcom_ratio"] = p["subcom_ratio"]
                 frame[word_pos] = cell
