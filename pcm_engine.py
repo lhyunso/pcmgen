@@ -34,6 +34,23 @@ def calc_sync_bits(sync_pattern: str, bits_per_word: int) -> int:
     return len(parts) * bits_per_word
 
 
+def _sensor_groups(s: dict) -> list[dict]:
+    """Return channel groups for a sensor entry.
+
+    Supports two formats:
+      New: {"channels": [{"count": 4, "hz": 800}, {"count": 8, "hz": 50}]}
+      Old: {"hz": 800, "ch": 8}   → converted to single group
+    """
+    if "channels" in s and s["channels"]:
+        return s["channels"]
+    return [{"count": s.get("ch", 1), "hz": s.get("hz", 50)}]
+
+
+def _sensor_total_ch(s: dict) -> int:
+    """Total channel count for a sensor entry."""
+    return sum(g["count"] for g in _sensor_groups(s))
+
+
 def validate_config(config: dict) -> list[dict]:
     """Validate configuration against IRIG-106 Chapter 4 rules."""
     msgs = []
@@ -77,12 +94,17 @@ def validate_config(config: dict) -> list[dict]:
     # Supercommutation validation (use minor frame rate = frame_hz * Z)
     mfr = frame_hz * Z
     for s in config.get("sensors", []):
-        sc = s["hz"] / mfr
-        if abs(sc - round(sc)) > 0.001 and sc > 1:
-            msgs.append({"type": "error", "msg": f"[{s['name']}] Supercom ratio {sc:.3f} is not integer (§2.5)"})
+        for g in _sensor_groups(s):
+            sc = g["hz"] / mfr
+            if abs(sc - round(sc)) > 0.001 and sc > 1:
+                msgs.append({"type": "error", "msg": f"[{s['name']}] Supercom ratio {sc:.3f} is not integer (§2.5)"})
 
     # SFID recommendation
-    has_subcom = any(s["hz"] < mfr for s in config.get("sensors", []))
+    has_subcom = any(
+        g["hz"] < mfr
+        for s in config.get("sensors", [])
+        for g in _sensor_groups(s)
+    )
     if has_subcom and sfid_count == 0:
         msgs.append({"type": "warning", "msg": "Subcommutated parameters exist → SFID recommended (§2.4)"})
 
@@ -112,14 +134,15 @@ def _calc_total_used(config: dict) -> dict:
     subcom_appearances = 0  # total subcom appearances per major frame
 
     for s in config.get("sensors", []):
-        if s["hz"] < mfr and Z > 1:
-            # Each channel gets its own dedicated word position
-            ratio = max(1, round(mfr / s["hz"]))
-            subcom_positions += s["ch"]
-            subcom_appearances += s["ch"] * (Z // ratio)
-        else:
-            sc = max(1, round(s["hz"] / mfr))
-            sensor_words += s["ch"] * sc
+        for g in _sensor_groups(s):
+            cnt, hz = g["count"], g["hz"]
+            if hz < mfr and Z > 1:
+                ratio = max(1, round(mfr / hz))
+                subcom_positions += cnt
+                subcom_appearances += cnt * (Z // ratio)
+            else:
+                sc = max(1, round(hz / mfr))
+                sensor_words += cnt * sc
 
     for d in config.get("digital", []):
         ch_per_sample = math.ceil(d["bits"] / B)
@@ -182,27 +205,30 @@ def allocate_channels(config: dict) -> dict:
     mfr = frame_hz * Z  # minor frame rate
     params = []
     for s in sensors:
-        is_subcom = s["hz"] < mfr and Z > 1
-        sc = 1 if is_subcom else max(1, round(s["hz"] / mfr))
-        sub_ratio = max(1, round(mfr / s["hz"])) if is_subcom else 0
         device = s.get("device", "M")
         slot = s.get("slot", "S1")
         module_name = s.get("name", "MOD")
-        for ea in range(s["ch"]):
-            ch_num = ea + 1
-            # Base label (occurrence suffix appended at placement time)
-            base_label = f"{device}_{slot}_{module_name}-{ch_num:02d}"
-            params.append({
-                "name": base_label,
-                "type": s["type"],
-                "category": "sensor",
-                "hz": s["hz"],
-                "supercom": sc,
-                "subcom_ratio": sub_ratio,
-                "dau": s.get("dau", device),
-                "note": s.get("note", ""),
-                "source": s,
-            })
+        ch_num = 1  # sequential across all groups
+        for g in _sensor_groups(s):
+            hz = g["hz"]
+            count = g["count"]
+            is_subcom = hz < mfr and Z > 1
+            sc = 1 if is_subcom else max(1, round(hz / mfr))
+            sub_ratio = max(1, round(mfr / hz)) if is_subcom else 0
+            for _ in range(count):
+                base_label = f"{device}_{slot}_{module_name}-{ch_num:02d}"
+                params.append({
+                    "name": base_label,
+                    "type": s["type"],
+                    "category": "sensor",
+                    "hz": hz,
+                    "supercom": sc,
+                    "subcom_ratio": sub_ratio,
+                    "dau": s.get("dau", device),
+                    "note": s.get("note", ""),
+                    "source": s,
+                })
+                ch_num += 1
 
     # Digital label format: {device}_{slot}_{type}-{dt_idx:02d}-{word_idx:02d}
     # dt_idx: sequential number among entries sharing the same (device, slot) slot
@@ -521,40 +547,38 @@ def _build_param_list(config: dict, frame_hz: float, B: int) -> list[dict]:
     ch_idx = 1
 
     for s in config.get("sensors", []):
-        is_subcom = s["hz"] < mfr and Z > 1
-        if is_subcom:
-            sub_ratio = max(1, round(mfr / s["hz"]))
-            pcm_ch = s["ch"]  # subcom shares positions
-            result.append({
-                "idx": ch_idx,
-                "category": "Analog Sensor",
-                "type": s["type"],
-                "name": s["name"],
-                "hz": s["hz"],
-                "ea": s["ch"],
-                "supercom": 0,
-                "subcom_ratio": sub_ratio,
-                "pcm_ch": pcm_ch,
-                "dau": s.get("dau", ""),
-                "note": f"1/{sub_ratio} subcom" + (f" {s.get('note', '')}" if s.get('note') else ""),
-            })
-        else:
-            sc = max(1, round(s["hz"] / mfr))
-            pcm_ch = s["ch"] * sc
-            result.append({
-                "idx": ch_idx,
-                "category": "Analog Sensor",
-                "type": s["type"],
-                "name": s["name"],
-                "hz": s["hz"],
-                "ea": s["ch"],
-                "supercom": sc,
-                "subcom_ratio": 0,
-                "pcm_ch": pcm_ch,
-                "dau": s.get("dau", ""),
-                "note": s.get("note", ""),
-            })
-        ch_idx += pcm_ch
+        groups = _sensor_groups(s)
+        total_ch = _sensor_total_ch(s)
+        # Build a summary entry per sensor (groups summarised in note)
+        group_notes = []
+        total_pcm_ch = 0
+        for g in groups:
+            hz, cnt = g["hz"], g["count"]
+            is_subcom = hz < mfr and Z > 1
+            if is_subcom:
+                sub_ratio = max(1, round(mfr / hz))
+                group_notes.append(f"{cnt}ch@Sub1/{sub_ratio}")
+                total_pcm_ch += cnt
+            else:
+                sc = max(1, round(hz / mfr))
+                group_notes.append(f"{cnt}ch@{hz}Hz{'×'+str(sc) if sc>1 else ''}")
+                total_pcm_ch += cnt * sc
+        comm_summary = ", ".join(group_notes)
+        note_str = (s.get("note", "") + " | " if s.get("note") else "") + comm_summary
+        result.append({
+            "idx": ch_idx,
+            "category": "Analog Sensor",
+            "type": s["type"],
+            "name": s["name"],
+            "hz": ", ".join(str(g["hz"]) for g in groups) if len(groups) > 1 else str(groups[0]["hz"]),
+            "ea": total_ch,
+            "supercom": 0,
+            "subcom_ratio": 0,
+            "pcm_ch": total_pcm_ch,
+            "dau": s.get("dau", ""),
+            "note": note_str,
+        })
+        ch_idx += total_pcm_ch
 
     for d in config.get("digital", []):
         ch_count = math.ceil(d["bits"] / B)
@@ -641,13 +665,14 @@ def auto_calculate_frame_size(config: dict) -> dict:
     subcom_slots = 0
 
     for s in sensors:
-        if s["hz"] < mfr and Z > 1:
-            # Each subcom channel needs its own dedicated word position
-            subcom_slots += s["ch"]
-        else:
-            sc = max(1, round(s["hz"] / mfr))
-            max_sc = max(max_sc, sc)
-            total_data_ch += s["ch"] * sc
+        for g in _sensor_groups(s):
+            hz, cnt = g["hz"], g["count"]
+            if hz < mfr and Z > 1:
+                subcom_slots += cnt
+            else:
+                sc = max(1, round(hz / mfr))
+                max_sc = max(max_sc, sc)
+                total_data_ch += cnt * sc
 
     for d in digital_data:
         ch_count = math.ceil(d["bits"] / B)

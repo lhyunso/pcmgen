@@ -183,7 +183,7 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
   <div onclick="event.stopPropagation()" style="background:#fff;border-radius:10px;padding:28px 32px;min-width:300px;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,.25);text-align:center">
     <div style="font-size:22px;font-weight:700;color:#0F4C81;margin-bottom:4px">PCM Channel Config Generator</div>
     <div style="font-size:13px;color:#4A5568;margin-bottom:16px">IRIG 106 Ch.4 Compliant</div>
-    <div style="display:inline-block;background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;border-radius:20px;padding:5px 20px;font-size:18px;font-weight:700;letter-spacing:1px;margin-bottom:16px">v1.1.6</div>
+    <div style="display:inline-block;background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;border-radius:20px;padding:5px 20px;font-size:18px;font-weight:700;letter-spacing:1px;margin-bottom:16px">v1.2.0</div>
     <div style="font-size:11px;color:#718096;line-height:1.7">
       © 2025 단암시스템즈 (Danam Systems)<br>
       Supercom: intelligent equidistant placement<br>
@@ -533,13 +533,24 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
           </select>
         </div>
       </div>
-      <div class="fr"><label>모듈 이름 (Module Name)</label><input type="text" id="m-pn" placeholder="e.g., RTD, DC, ICP, PZT" oninput="updateLabelPreview()"></div>
-      <div class="g2">
-        <div class="fr"><label>Sample Rate (Hz)</label>
-          <input type="number" id="m-hz" value="50" min="0.001" step="any" oninput="onMHz()">
-          <div class="hint" id="m-sc" style="color:var(--c1)">1x → 1 words/minor frame</div>
+      <div class="fr"><label>모듈 이름 (Module Name)</label><input type="text" id="m-pn" placeholder="e.g., RTD, DC, ICP, PZT" oninput="renderSensorGroups()"></div>
+      <!-- Channel Groups Editor -->
+      <div class="fr">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <label style="margin-bottom:0">채널 그룹 <span style="font-size:10px;color:var(--text3)">(채널번호 연속 자동 부여)</span></label>
+          <button class="btn" style="padding:2px 10px;font-size:11px" onclick="addSensorGroup()">+ 그룹 추가</button>
         </div>
-        <div class="fr"><label>채널 수 (EA, 최대 16)</label><input type="number" id="m-ch" value="1" min="1" max="16" oninput="onMHz()"></div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px" id="sg-table">
+          <thead><tr style="background:#F0F4F8;color:var(--text2)">
+            <th style="padding:4px 6px;text-align:left">CH #</th>
+            <th style="padding:4px 6px;text-align:center">EA</th>
+            <th style="padding:4px 6px;text-align:center">Sample Hz</th>
+            <th style="padding:4px 6px;text-align:center;color:var(--c1)">Comm</th>
+            <th style="padding:4px 2px"></th>
+          </tr></thead>
+          <tbody id="sg-body"></tbody>
+        </table>
+        <div class="hint" id="sg-total" style="text-align:right;margin-top:4px;font-weight:600"></div>
       </div>
       <!-- Channel ID Preview -->
       <div class="fr" style="background:#F0F7FF;border:1px solid #93C5FD;border-radius:var(--r);padding:8px 10px;margin-bottom:7px">
@@ -709,6 +720,7 @@ function makeChannelLabel(device, slot, moduleName, chNum, supercomRatio){
 // ─────────────────────────────────────────────────
 let sensors=[], digital=[], bitData=[];
 let selS=-1, selD=-1, selB=-1;
+let sensorGroups=[{count:1,hz:50}]; // temp channel groups while editing sensor modal
 let editSIdx=-1, editDIdx=-1, editBIdx=-1;
 let lastResult = null; // store last generation result
 let lastWordMap = null; // word position map: {sensors:[...], digital:[...], bits:[...]}
@@ -896,24 +908,32 @@ function supercom(hz, f){ return Math.max(1, Math.round(hz / f.mfr)); }
 function subcomRatio(hz, f){ return (hz < f.mfr && f.Z > 1) ? Math.max(1, Math.round(f.mfr / hz)) : 0; }
 function isSubcom(hz, f){ return hz < f.mfr && f.Z > 1; }
 function maxSupercom(f){
-  return sensors.reduce((m,s)=>{
-    if(isSubcom(s.hz,f)) return m;
-    const sc=supercom(s.hz,f); return sc>m?sc:m;
-  },1);
+  let m=1;
+  sensors.forEach(s=>_sGroups(s).forEach(g=>{
+    if(!isSubcom(g.hz,f)){ const sc=supercom(g.hz,f); if(sc>m) m=sc; }
+  }));
+  return m;
 }
 // Channel usage per minor frame
 // supercom/normal: ch * supercom_ratio words per minor
 // subcom: each channel owns one dedicated word position (no sharing)
+// Return channel groups for a sensor (supports both old {hz,ch} and new {channels})
+function _sGroups(s){ return s.channels&&s.channels.length?s.channels:[{count:s.ch||1,hz:s.hz||50}]; }
+// Total channel count for a sensor
+function _sCh(s){ return _sGroups(s).reduce((t,g)=>t+g.count,0); }
+
 function calcUsed(f){
   let su=0, du=0, subPos=0, subAppearances=0;
   sensors.forEach(s=>{
-    if(isSubcom(s.hz,f)){
-      const ratio=subcomRatio(s.hz,f);
-      subPos += s.ch;
-      subAppearances += s.ch * Math.floor(f.Z / ratio);
-    } else {
-      su += s.ch * supercom(s.hz,f);
-    }
+    _sGroups(s).forEach(g=>{
+      if(isSubcom(g.hz,f)){
+        const ratio=subcomRatio(g.hz,f);
+        subPos += g.count;
+        subAppearances += g.count * Math.floor(f.Z / ratio);
+      } else {
+        su += g.count * supercom(g.hz,f);
+      }
+    });
   });
   digital.forEach(d=>{
     const ch=Math.ceil(d.bits/f.B);
@@ -943,7 +963,7 @@ function buildConfig(){
     sfid_count: f.sf,
     sync_pattern: f.sp,
     bit_repr: f.br,
-    sensors: sensors.map(s=>({type:s.type,device:s.device||'M',slot:s.slot||'S1',name:s.name,hz:s.hz,ch:s.ch,note:s.note||''})),
+    sensors: sensors.map(s=>({type:s.type,device:s.device||'M',slot:s.slot||'S1',name:s.name,channels:_sGroups(s),note:s.note||''})),
     digital: digital.map(d=>({device:d.device||'M',slot:d.slot||'S1',type:d.type,hz:d.hz,bits:d.bits,note:d.note||''})),
     bit_data: bitData.map(b=>({vl:b.vl,bytes:b.bytes,note:b.note})),
   };
@@ -1089,11 +1109,13 @@ function validate(f,cls,sb,rem,avail,used,maxSc,slotW){
     if(bitrate(f)>IRIG.MAX_BR_C1) msgs.push({t:'warn',m:`Bit rate ${(bitrate(f)/1e6).toFixed(2)} Mbps > 5 Mbps -> <b>Class II</b> (sec.4.8)`});
   }
   sensors.forEach(s=>{
-    const sc=s.hz/f.mfr; // use minor frame rate
-    if(sc>1&&Math.abs(sc-Math.round(sc))>0.001)
-      msgs.push({t:'er',m:`[${s.name}] Supercom ratio ${sc.toFixed(3)} -- not integer (sec.2.5)`});
+    _sGroups(s).forEach(g=>{
+      const sc=g.hz/f.mfr;
+      if(sc>1&&Math.abs(sc-Math.round(sc))>0.001)
+        msgs.push({t:'er',m:`[${s.name}] Supercom ratio ${sc.toFixed(3)} -- not integer (sec.2.5)`});
+    });
   });
-  const hasSub=sensors.some(s=>s.hz<f.mfr);
+  const hasSub=sensors.some(s=>_sGroups(s).some(g=>g.hz<f.mfr));
   if(hasSub&&f.sf===0&&f.Z>1) msgs.push({t:'warn',m:'Subcom parameters exist -> SFID recommended (sec.2.4)'});
   if(maxSc>1){
     const sw=f.W/maxSc;
@@ -1168,15 +1190,19 @@ function buildRow(f,rowIdx,maxSc){
 
   const allSuper=[];
   sensors.forEach(s=>{
-    if(f.Z>1&&isSubcom(s.hz,f)) return;
-    const sc_=supercom(s.hz,f); if(sc_<=1) return;
     const m=SMETA[s.type]||SMETA.ETC;
     const dev=s.device||'M', slt=s.slot||'S1', mod=s.name||'MOD';
-    for(let i=0;i<s.ch;i++){
-      // Store base label (no occurrence suffix yet — added at placement)
-      const base=`${dev}_${slt}_${mod}-${String(i+1).padStart(2,'0')}`;
-      allSuper.push({sc:sc_,base,color:m.color,complete:false});
-    }
+    let chNum=1;
+    _sGroups(s).forEach(g=>{
+      if(f.Z>1&&isSubcom(g.hz,f)){ chNum+=g.count; return; }
+      const sc_=supercom(g.hz,f);
+      if(sc_<=1){ chNum+=g.count; return; }
+      for(let i=0;i<g.count;i++){
+        const base=`${dev}_${slt}_${mod}-${String(chNum).padStart(2,'0')}`;
+        allSuper.push({sc:sc_,base,color:m.color,complete:false});
+        chNum++;
+      }
+    });
   });
   digital.forEach((d,di)=>{
     if(f.Z>1&&isSubcom(d.hz,f)) return;
@@ -1225,16 +1251,20 @@ function buildRow(f,rowIdx,maxSc){
   // 3. Normal (1×) params: fill slot 0, overflow to anywhere
   const slot0End=overhead+slotW;
   sensors.forEach(s=>{
-    if(f.Z>1&&isSubcom(s.hz,f)) return;
-    if(supercom(s.hz,f)>1) return;
     const m=SMETA[s.type]||SMETA.ETC;
     const dev=s.device||'M', slt=s.slot||'S1', mod=s.name||'MOD';
-    for(let i=0;i<s.ch;i++){
-      const lbl=makeChannelLabel(dev,slt,mod,i+1,1);
-      let pos=firstAvail(overhead,slot0End);
-      if(pos<0) pos=firstAvail(overhead,W);
-      if(pos>=0) claim(pos,{label:lbl,color:m.color,subcom:false});
-    }
+    let chNum=1;
+    _sGroups(s).forEach(g=>{
+      if(f.Z>1&&isSubcom(g.hz,f)){ chNum+=g.count; return; }
+      if(supercom(g.hz,f)>1){ chNum+=g.count; return; }
+      for(let i=0;i<g.count;i++){
+        const lbl=makeChannelLabel(dev,slt,mod,chNum,1);
+        let pos=firstAvail(overhead,slot0End);
+        if(pos<0) pos=firstAvail(overhead,W);
+        if(pos>=0) claim(pos,{label:lbl,color:m.color,subcom:false});
+        chNum++;
+      }
+    });
   });
   digital.forEach((d,di)=>{
     if(f.Z>1&&isSubcom(d.hz,f)) return;
@@ -1266,13 +1296,19 @@ function buildRow(f,rowIdx,maxSc){
   //    No sharing between different subcom channels — same rule as Python engine.
   if(f.Z>1){
     const subParams=[];
-    sensors.filter(s=>isSubcom(s.hz,f)).forEach(s=>{
-      const m=SMETA[s.type]||SMETA.ETC; const ratio=subcomRatio(s.hz,f);
+    sensors.forEach(s=>{
+      const m=SMETA[s.type]||SMETA.ETC;
       const dev=s.device||'M', slt=s.slot||'S1', mod=s.name||'MOD';
-      for(let i=0;i<s.ch;i++){
-        const lbl=makeChannelLabel(dev,slt,mod,i+1,1);
-        subParams.push({name:lbl,color:m.color,ratio});
-      }
+      let chNum=1;
+      _sGroups(s).forEach(g=>{
+        if(!isSubcom(g.hz,f)){ chNum+=g.count; return; }
+        const ratio=subcomRatio(g.hz,f);
+        for(let i=0;i<g.count;i++){
+          const lbl=makeChannelLabel(dev,slt,mod,chNum,1);
+          subParams.push({name:lbl,color:m.color,ratio});
+          chNum++;
+        }
+      });
     });
     digital.forEach((d,di)=>{
       if(!isSubcom(d.hz,f)) return;
@@ -1392,33 +1428,41 @@ function switchTab(id,el){
 function renderSensors(){
   const f=F();
   document.getElementById('s-body').innerHTML=sensors.map((s,i)=>{
-    const isSub=isSubcom(s.hz,f);
-    const sc=supercom(s.hz,f);
-    const subR=subcomRatio(s.hz,f);
-    let commLabel, wordsPerMinor;
-    if(isSub){
-      // Subcom: sensor sampled slower than MFR → shared word position across Z frames
-      commLabel=`<span style="color:var(--warn);font-weight:600">Sub 1/${subR}</span>`;
-      wordsPerMinor=`${s.ch} <span style="font-size:10px;color:var(--warn)">(1/${subR} shared)</span>`;
-    } else if(sc>1){
-      // Supercom: sensor sampled faster than MFR → multiple words per minor frame
-      commLabel=`<span style="color:var(--c1);font-weight:600">Super ${sc}x</span>`;
-      wordsPerMinor=`<strong>${s.ch*sc}</strong> <span style="font-size:10px;color:var(--text3)">(${s.ch}×${sc})</span>`;
-    } else {
-      // Normal: 1x per minor frame
-      commLabel='1x';
-      wordsPerMinor=`<strong>${s.ch}</strong>`;
-    }
+    const groups=_sGroups(s);
+    const totalCh=_sCh(s);
     const m=SMETA[s.type]||SMETA.ETC;
-    const device=s.device||'M';
-    const slot=s.slot||'S1';
+    const device=s.device||'M', slot=s.slot||'S1';
     const wCell=_wordCellHtml('sensor',i);
+
+    // Build per-group summary
+    let totalWpm=0;
+    const commParts=groups.map(g=>{
+      const isSub=isSubcom(g.hz,f), sc=supercom(g.hz,f), subR=subcomRatio(g.hz,f);
+      let tag, wpm;
+      if(isSub){
+        tag=`<span style="color:var(--warn);font-weight:600">Sub 1/${subR}</span>`;
+        wpm=g.count;
+      } else if(sc>1){
+        tag=`<span style="color:var(--c1);font-weight:600">Super ${sc}x</span>`;
+        wpm=g.count*sc;
+      } else {
+        tag='1x'; wpm=g.count;
+      }
+      totalWpm+=wpm;
+      return `<span style="font-size:10px">${g.count}ch @${g.hz}Hz&nbsp;${tag}</span>`;
+    });
+
+    const hzDisp = groups.length===1 ? groups[0].hz : `<span style="font-style:italic;font-size:10px">multi</span>`;
+    const commLabel = groups.length===1 ? commParts[0] :
+      `<details style="display:inline"><summary style="cursor:pointer;font-size:11px;color:var(--c1)">Multi ▾</summary><div style="text-align:left;padding:4px 0">${commParts.join('<br>')}</div></details>`;
+    const wordsPerMinor = `<strong>${totalWpm}</strong>${groups.length>1?` <span style="font-size:10px;color:var(--text3)">(${totalCh}ch)</span>`:''}`;
+
     return `<tr class="${selS===i?'sel':''}" onclick="selSensor(${i})" ondblclick="editSensorRow(${i})">
       <td>${i+1}</td>
       <td><span class="sdot" style="background:${m.color}"></span>${m.label}</td>
       <td style="font-weight:700;color:var(--accent)">${device}</td>
       <td style="font-weight:600;color:var(--text2)">${slot}</td>
-      <td>${s.name}</td><td>${s.hz}</td><td>${s.ch}</td>
+      <td>${s.name}</td><td>${hzDisp}</td><td>${totalCh}</td>
       <td class="ca">${commLabel}</td>
       <td class="ca">${wordsPerMinor}</td>
       <td style="color:var(--text3)">${s.note||''}</td>
@@ -1450,10 +1494,9 @@ function editSensorRow(i){
   document.getElementById('m-dev').value=s.device||'M';
   document.getElementById('m-slot').value=s.slot||'S1';
   document.getElementById('m-pn').value=s.name;
-  document.getElementById('m-hz').value=s.hz;
-  document.getElementById('m-ch').value=s.ch;
   document.getElementById('m-nt').value=s.note||'';
-  onMHz(); document.getElementById('sm').classList.add('open');
+  sensorGroups=JSON.parse(JSON.stringify(_sGroups(s)));
+  renderSensorGroups(); document.getElementById('sm').classList.add('open');
 }
 function openSensorModal(){
   editSIdx=-1;
@@ -1462,8 +1505,6 @@ function openSensorModal(){
   document.getElementById('m-dev').value='M';
   document.getElementById('m-slot').value='S1';
   document.getElementById('m-pn').value='';
-  document.getElementById('m-hz').value=50;
-  document.getElementById('m-ch').value=1;
   document.getElementById('m-nt').value='';
   onStChange(); document.getElementById('sm').classList.add('open');
 }
@@ -1471,87 +1512,111 @@ function closeSensorModal(){document.getElementById('sm').classList.remove('open
 function onStChange(){
   const m=SMETA[document.getElementById('m-st').value]||SMETA.ETC;
   if(!document.getElementById('m-pn').value) document.getElementById('m-pn').value=m.mod;
-  document.getElementById('m-hz').value=m.hz; onMHz();
+  // Set default first group Hz from sensor type
+  if(sensorGroups.length===1) sensorGroups[0].hz=m.hz;
+  else sensorGroups=[{count:1,hz:m.hz}];
+  renderSensorGroups();
 }
-function updateLabelPreview(){
-  const device = document.getElementById('m-dev').value||'M';
-  const slot   = document.getElementById('m-slot').value||'S1';
-  const mod    = document.getElementById('m-pn').value||'MOD';
-  const ch     = Math.min(16, parseInt(document.getElementById('m-ch').value)||1);
-  const hz     = parseFloat(document.getElementById('m-hz').value)||50;
-  const f      = F();
-  const isSub  = isSubcom(hz, f);
-  const sc     = isSub ? 1 : Math.max(1, Math.round(hz / f.mfr));
 
-  // Build preview lines
-  const lines = [];
-  if(sc > 1){
-    // Supercom: show occurrence range for first channel
-    const base1 = `${device}_${slot}_${mod}-01`;
-    lines.push(`슈퍼콤 ${sc}x — 채널당 ${sc}개 워드 위치:`);
-    lines.push(`  ${base1}-1  ← 1번째 슈퍼콤 그룹`);
-    lines.push(`  ${base1}-2`);
-    if(sc > 3) lines.push(`  ...`);
-    lines.push(`  ${base1}-${sc}  ← ${sc}번째 슈퍼콤 그룹`);
-    if(ch > 1){
-      const baseLast = `${device}_${slot}_${mod}-${String(ch).padStart(2,'0')}`;
-      lines.push(`  (채널 ${ch}번) ${baseLast}-1 ~ ${baseLast}-${sc}`);
-    }
-  } else if(isSub){
-    const first = makeChannelLabel(device, slot, mod, 1, 1);
-    lines.push(`서브콤 (MFR/${Math.max(1,Math.round(f.mfr/hz))}마다 등장):`);
-    lines.push(`  ${first}`);
-    if(ch > 1) lines.push(`  ~ ${makeChannelLabel(device, slot, mod, ch, 1)}`);
-  } else {
-    // Normal 1x
-    const first = makeChannelLabel(device, slot, mod, 1, 1);
-    if(ch === 1){
-      lines.push(first);
-    } else {
-      lines.push(`${first}`);
-      lines.push(`~ ${makeChannelLabel(device, slot, mod, ch, 1)}`);
-      lines.push(`(총 ${ch}채널)`);
-    }
-  }
-  document.getElementById('m-label-preview').textContent = lines.join('\n');
+// ── Channel Group Editor ──
+function addSensorGroup(){
+  const lastHz = sensorGroups.length ? sensorGroups[sensorGroups.length-1].hz : 50;
+  sensorGroups.push({count:1, hz:lastHz});
+  renderSensorGroups();
 }
-function onMHz(){
-  const hz=parseFloat(document.getElementById('m-hz').value)||50;
-  const mhz=parseFloat(document.getElementById('major_hz').value)||50;
-  const Z=parseInt(document.getElementById('minor_count').value)||1;
-  const ch=parseInt(document.getElementById('m-ch').value)||1;
-  const mfr=mhz*Z;  // minor frame rate
-  const sc=hz/mfr;
-  const el=document.getElementById('m-sc');
-  let txt='';
-  if(sc>=1){
-    const ratio=Math.max(1,Math.round(sc));
-    if(ratio>1){
-      txt=`Super ${ratio}x → ${ch*ratio} words/minor frame`;
-      if(sc%1!==0) txt+=` (${sc.toFixed(2)} rounded)`;
+function removeSensorGroup(idx){
+  if(sensorGroups.length<=1){ alert('최소 1개 그룹이 필요합니다.'); return; }
+  sensorGroups.splice(idx,1);
+  renderSensorGroups();
+}
+function updateSensorGroup(idx, field, val){
+  sensorGroups[idx][field] = field==='count' ? Math.max(1,parseInt(val)||1) : parseFloat(val)||50;
+  renderSensorGroups();
+}
+function renderSensorGroups(){
+  const f=F();
+  const device=document.getElementById('m-dev').value||'M';
+  const slot=document.getElementById('m-slot').value||'S1';
+  const mod=document.getElementById('m-pn').value||'MOD';
+
+  let chStart=1, totalCh=0, totalWpm=0;
+  const rows=sensorGroups.map((g,idx)=>{
+    const cnt=g.count||1, hz=g.hz||50;
+    const isSub=isSubcom(hz,f), sc=supercom(hz,f), subR=subcomRatio(hz,f);
+    let commTxt, wpm;
+    if(isSub){
+      commTxt=`<span style="color:var(--warn);font-weight:600;font-size:11px">Sub 1/${subR}</span>`;
+      wpm=cnt;
+    } else if(sc>1){
+      commTxt=`<span style="color:var(--c1);font-weight:600;font-size:11px">Super ${sc}x</span>`;
+      wpm=cnt*sc;
     } else {
-      txt=`1x → ${ch} words/minor frame`;
+      commTxt=`<span style="font-size:11px">1x Normal</span>`; wpm=cnt;
     }
-    el.style.color='var(--c1)';
-  } else {
-    const ratio=Math.round(mfr/hz);
-    txt=`Sub 1/${ratio} → ${ch} words (shared, ${ratio}frame마다 1회)`;
-    if(Z<=1) txt+=' ⚠ Z>1 필요';
-    el.style.color='var(--warn)';
-  }
-  txt+=` [MFR=${mfr} Hz]`;
-  el.textContent=txt;
+    const chEnd=chStart+cnt-1;
+    const chLabel=`CH${String(chStart).padStart(2,'0')}~${String(chEnd).padStart(2,'0')}`;
+    totalCh+=cnt; totalWpm+=wpm; chStart+=cnt;
+    return `<tr>
+      <td style="padding:3px 6px;font-size:11px;color:var(--text3);white-space:nowrap">${chLabel}</td>
+      <td style="padding:3px 4px;text-align:center">
+        <input type="number" value="${cnt}" min="1" style="width:46px;text-align:center"
+          oninput="updateSensorGroup(${idx},'count',this.value)">
+      </td>
+      <td style="padding:3px 4px;text-align:center">
+        <input type="number" value="${hz}" min="0.001" step="any" style="width:70px;text-align:center"
+          oninput="updateSensorGroup(${idx},'hz',this.value)">
+      </td>
+      <td style="padding:3px 6px;text-align:center">${commTxt}</td>
+      <td style="padding:3px 4px;text-align:center">
+        <button onclick="removeSensorGroup(${idx})"
+          style="background:none;border:1px solid #ccc;border-radius:3px;cursor:pointer;font-size:11px;padding:1px 5px;color:var(--text3)">×</button>
+      </td>
+    </tr>`;
+  });
+  document.getElementById('sg-body').innerHTML=rows.join('');
+  document.getElementById('sg-total').textContent=`합계: ${totalCh}채널 / ${totalWpm} words/minor`;
+
+  // Update label preview
   updateLabelPreview();
 }
+function updateLabelPreview(){
+  const device=document.getElementById('m-dev').value||'M';
+  const slot=document.getElementById('m-slot').value||'S1';
+  const mod=document.getElementById('m-pn').value||'MOD';
+  const f=F();
+  const lines=[];
+  let chStart=1;
+  sensorGroups.forEach(g=>{
+    const cnt=g.count||1, hz=g.hz||50;
+    const isSub=isSubcom(hz,f), sc=supercom(hz,f), subR=subcomRatio(hz,f);
+    const chEnd=chStart+cnt-1;
+    const chLabel=`CH${String(chStart).padStart(2,'0')}~${String(chEnd).padStart(2,'0')}`;
+    if(sc>1){
+      lines.push(`${chLabel} @${hz}Hz Super${sc}x`);
+      lines.push(`  ${device}_${slot}_${mod}-${String(chStart).padStart(2,'0')}-1 ~ -${sc}`);
+      if(cnt>1) lines.push(`  ~ ${device}_${slot}_${mod}-${String(chEnd).padStart(2,'0')}-1 ~ -${sc}`);
+    } else if(isSub){
+      lines.push(`${chLabel} @${hz}Hz Sub 1/${subR}`);
+      lines.push(`  ${device}_${slot}_${mod}-${String(chStart).padStart(2,'0')}-1`);
+      if(cnt>1) lines.push(`  ~ ${device}_${slot}_${mod}-${String(chEnd).padStart(2,'0')}-1`);
+    } else {
+      lines.push(`${chLabel} @${hz}Hz 1x Normal`);
+      lines.push(`  ${device}_${slot}_${mod}-${String(chStart).padStart(2,'0')}-1`);
+      if(cnt>1) lines.push(`  ~ ${device}_${slot}_${mod}-${String(chEnd).padStart(2,'0')}-1`);
+    }
+    chStart+=cnt;
+  });
+  document.getElementById('m-label-preview').textContent=lines.join('\n');
+}
 function saveSensor(){
+  if(!sensorGroups.length){ alert('채널 그룹을 1개 이상 추가하세요.'); return; }
   const s={
-    type: document.getElementById('m-st').value,
-    device: document.getElementById('m-dev').value||'M',
-    slot: document.getElementById('m-slot').value||'S1',
-    name: document.getElementById('m-pn').value||'MOD',
-    hz: parseFloat(document.getElementById('m-hz').value)||50,
-    ch: Math.min(16, parseInt(document.getElementById('m-ch').value)||1),
-    note: document.getElementById('m-nt').value
+    type:  document.getElementById('m-st').value,
+    device:document.getElementById('m-dev').value||'M',
+    slot:  document.getElementById('m-slot').value||'S1',
+    name:  document.getElementById('m-pn').value||'MOD',
+    channels: sensorGroups.map(g=>({count:Math.max(1,g.count||1), hz:g.hz||50})),
+    note:  document.getElementById('m-nt').value
   };
   if(editSIdx>=0) sensors[editSIdx]=s; else sensors.push(s);
   closeSensorModal(); renderSensors();
@@ -1809,16 +1874,25 @@ async function doGenerate(){
       const wordBytes = f.B / 8;
       let pidx = 1;
       sensors.forEach((s, si) => {
-        const sc_ = s.hz / mfr;
-        const isSub = sc_ < 1;
-        const scR = isSub ? 1 : Math.round(sc_);
-        const subR = isSub ? Math.round(1 / sc_) : 0;
-        const comm = isSub ? `Sub 1/${subR}` : scR > 1 ? `Super ${scR}x` : '1x';
-        const wpm = isSub ? s.ch : s.ch * scR;
+        const groups = _sGroups(s);
+        const totalCh = _sCh(s);
         const m = SMETA[s.type] || SMETA.ETC;
+        // Build comm summary across groups
+        let totalWpm = 0;
+        const commParts = groups.map(g => {
+          const sc_ = g.hz / mfr;
+          const isSub = sc_ < 1;
+          const scR = isSub ? 1 : Math.round(sc_);
+          const subR = isSub ? Math.round(1 / sc_) : 0;
+          const wpm = isSub ? g.count : g.count * scR;
+          totalWpm += wpm;
+          return isSub ? `${g.count}ch@Sub1/${subR}` : scR > 1 ? `${g.count}ch@Super${scR}x` : `${g.count}ch@1x`;
+        });
+        const comm = groups.length === 1 ? commParts[0] : commParts.join(', ');
+        const hzStr = groups.length === 1 ? String(groups[0].hz) : groups.map(g=>g.hz).join('/');
         paramList.push({idx:pidx++, category:'Sensor', type:m.label, name:s.name,
           device:s.device||'M', slot:s.slot||'S1',
-          hz:s.hz, ea:s.ch, comm:comm, words_per_minor:wpm, color:m.color, note:s.note||'',
+          hz:hzStr, ea:totalCh, comm:comm, words_per_minor:totalWpm, color:m.color, note:s.note||'',
           word_positions: _formatWordPosExport(_wMap ? _wMap.sensors[si] : null)});
       });
       digital.forEach((d, di) => {
@@ -2031,8 +2105,10 @@ function applyConfig(cfg){
   document.getElementById('bit_repr').value = cfg.bit_repr || 'NRZ-L';
 
   sensors = (cfg.sensors || []).map(s => ({
-    type:s.type, device:s.device||'M', slot:s.slot||'S1',
-    name:s.name, hz:s.hz, ch:s.ch, note:s.note||''
+    type:s.type, device:s.device||'M', slot:s.slot||'S1', name:s.name,
+    // Support old format {hz,ch} and new format {channels}
+    channels: s.channels && s.channels.length ? s.channels : [{count:s.ch||1, hz:s.hz||50}],
+    note:s.note||''
   }));
   digital = (cfg.digital || []).map(d => ({
     device:d.device||'M', slot:d.slot||'S1',
@@ -2071,23 +2147,38 @@ function loadSample(){
 
   sensors=[
     // Master Device — High-speed acquisition modules
-    {type:'ACCICP', device:'M',  slot:'S1', name:'ICP', hz:800, ch:12, note:''},
-    {type:'ACCICP', device:'M',  slot:'S2', name:'ICP', hz:800, ch:11, note:''},
-    {type:'PIEZO',  device:'M',  slot:'S3', name:'PZT', hz:800, ch:10, note:''},
-    {type:'PIEZO',  device:'M',  slot:'S4', name:'PZT', hz:800, ch:10, note:''},
+    // S1: Mixed-rate ICP — CH01~08 @800Hz supercom, CH09~12 @50Hz normal (example of per-group Hz)
+    {type:'ACCICP', device:'M',  slot:'S1', name:'ICP',
+      channels:[{count:8,hz:800},{count:4,hz:50}], note:''},
+    {type:'ACCICP', device:'M',  slot:'S2', name:'ICP',
+      channels:[{count:11,hz:800}], note:''},
+    {type:'PIEZO',  device:'M',  slot:'S3', name:'PZT',
+      channels:[{count:10,hz:800}], note:''},
+    {type:'PIEZO',  device:'M',  slot:'S4', name:'PZT',
+      channels:[{count:10,hz:800}], note:''},
     // Slave 1 — Temperature & Strain
-    {type:'RTD',    device:'S1', slot:'S1', name:'RTD', hz:50,  ch:16, note:'PT100'},
-    {type:'RTD',    device:'S1', slot:'S2', name:'RTD', hz:50,  ch:16, note:''},
-    {type:'STR3W',  device:'S1', slot:'S3', name:'STR3',hz:50,  ch:16, note:''},
-    {type:'STR4W',  device:'S1', slot:'S4', name:'STR4',hz:50,  ch:12, note:''},
+    {type:'RTD',    device:'S1', slot:'S1', name:'RTD',
+      channels:[{count:16,hz:50}], note:'PT100'},
+    {type:'RTD',    device:'S1', slot:'S2', name:'RTD',
+      channels:[{count:16,hz:50}], note:''},
+    {type:'STR3W',  device:'S1', slot:'S3', name:'STR3',
+      channels:[{count:16,hz:50}], note:''},
+    {type:'STR4W',  device:'S1', slot:'S4', name:'STR4',
+      channels:[{count:12,hz:50}], note:''},
     // Slave 2 — Pressure, DC voltage, Thermocouple
-    {type:'PRS',    device:'S2', slot:'S1', name:'PRS', hz:50,  ch:16, note:''},
-    {type:'ACCDC',  device:'S2', slot:'S2', name:'ACC', hz:50,  ch:12, note:''},
-    {type:'VOLTAGE',device:'S2', slot:'S3', name:'DC',  hz:50,  ch:12, note:''},
-    {type:'TC',     device:'S2', slot:'S4', name:'TC',  hz:50,  ch:14, note:''},
+    {type:'PRS',    device:'S2', slot:'S1', name:'PRS',
+      channels:[{count:16,hz:50}], note:''},
+    {type:'ACCDC',  device:'S2', slot:'S2', name:'ACC',
+      channels:[{count:12,hz:50}], note:''},
+    {type:'VOLTAGE',device:'S2', slot:'S3', name:'DC',
+      channels:[{count:12,hz:50}], note:''},
+    {type:'TC',     device:'S2', slot:'S4', name:'TC',
+      channels:[{count:14,hz:50}], note:''},
     // Slow-rate subcom sensors (Master)
-    {type:'RTD',    device:'M',  slot:'S5', name:'RTD', hz:10,  ch:8,  note:'low-rate monitoring'},
-    {type:'TC',     device:'M',  slot:'S6', name:'TC',  hz:5,   ch:4,  note:'ambient temp'},
+    {type:'RTD',    device:'M',  slot:'S5', name:'RTD',
+      channels:[{count:8,hz:10}],  note:'low-rate monitoring'},
+    {type:'TC',     device:'M',  slot:'S6', name:'TC',
+      channels:[{count:4,hz:5}],   note:'ambient temp'},
   ];
   digital=[
     {device:'M',  slot:'S1', type:'ARINC429', hz:50, bits:256, note:'Nav bus (8 labels)'},
@@ -2122,7 +2213,7 @@ document.addEventListener('keydown',e=>{
 loadSample();
 
 // ── About modal ──
-const APP_VERSION = 'v1.1.6';
+const APP_VERSION = 'v1.2.0';
 function showAbout(){
   const el=document.getElementById('about-overlay');
   el.style.display='flex';
