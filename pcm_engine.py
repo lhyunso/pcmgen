@@ -51,6 +51,34 @@ def _sensor_total_ch(s: dict) -> int:
     return sum(g["count"] for g in _sensor_groups(s))
 
 
+def _plan_subcom_columns(ratio_counts: dict[int, int], budget: int) -> dict[int, int]:
+    """Decide how many word positions each subcom ratio group may occupy.
+
+    Horizontal-first — the layout the frame aims for whenever it can afford
+    it: every subcom channel owns a dedicated word position and is sampled
+    at minor frames 0, R, 2R, …
+
+    When the frame cannot afford one position per channel, channels sharing
+    a ratio R stack vertically inside one position — IRIG-106 subframe
+    commutation, where phase p occupies the minor frames with mf % R == p.
+    One position then carries up to R channels.
+
+    Returns {ratio: columns}. The sum exceeds ``budget`` only when even the
+    fully stacked minimum does not fit; the caller reports that as overflow.
+    """
+    cols = {r: max(1, math.ceil(n / r)) for r, n in ratio_counts.items() if n > 0}
+    spare = budget - sum(cols.values())
+    while spare > 0:
+        widenable = [r for r, c in cols.items() if c < ratio_counts[r]]
+        if not widenable:
+            break
+        # Unstack the most densely packed group first
+        r = max(widenable, key=lambda k: (ratio_counts[k] / cols[k], k))
+        cols[r] += 1
+        spare -= 1
+    return cols
+
+
 def validate_config(config: dict) -> list[dict]:
     """Validate configuration against IRIG-106 Chapter 4 rules."""
     msgs = []
@@ -118,9 +146,10 @@ def _calc_total_used(config: dict) -> dict:
     """Calculate total used word positions per minor frame.
 
     Returns dict with sensor/digital/bit/subcom counts and total.
-    Each subcom parameter receives its own dedicated word position
-    (IRIG-106: each subcommutated channel must map to a fixed word
-    position identified by SFID, with no sharing between channels).
+    Subcom channels are laid out horizontally first — one dedicated word
+    position each — and stack vertically into shared, phase-separated
+    positions only when the frame runs out of room (see
+    :func:`_plan_subcom_columns`).
     """
     frame_hz = config["frame_hz"]
     B = config["bits_per_word"]
@@ -130,7 +159,7 @@ def _calc_total_used(config: dict) -> dict:
     sensor_words = 0    # non-subcom sensor words per minor
     digital_words = 0   # non-subcom digital words per minor
     bit_words = 0
-    subcom_positions = 0    # dedicated word positions for subcom (one per channel)
+    sub_by_ratio: dict[int, int] = {}  # subcom ratio → channel count
     subcom_appearances = 0  # total subcom appearances per major frame
 
     for s in config.get("sensors", []):
@@ -138,7 +167,7 @@ def _calc_total_used(config: dict) -> dict:
             cnt, hz = g["count"], g["hz"]
             if hz < mfr and Z > 1:
                 ratio = max(1, round(mfr / hz))
-                subcom_positions += cnt
+                sub_by_ratio[ratio] = sub_by_ratio.get(ratio, 0) + cnt
                 subcom_appearances += cnt * (Z // ratio)
             else:
                 sc = max(1, round(hz / mfr))
@@ -148,7 +177,7 @@ def _calc_total_used(config: dict) -> dict:
         ch_per_sample = math.ceil(d["bits"] / B)
         if d["hz"] < mfr and Z > 1:
             ratio = max(1, round(mfr / d["hz"]))
-            subcom_positions += ch_per_sample
+            sub_by_ratio[ratio] = sub_by_ratio.get(ratio, 0) + ch_per_sample
             subcom_appearances += ch_per_sample * (Z // ratio)
         else:
             sc = max(1, round(d["hz"] / mfr))
@@ -157,13 +186,22 @@ def _calc_total_used(config: dict) -> dict:
     for b in config.get("bit_data", []):
         bit_words += math.ceil(b["bytes"] / (B / 8))
 
-    total = sensor_words + digital_words + bit_words + subcom_positions
+    # How many word positions the subcom channels will actually consume
+    fixed_words = sensor_words + digital_words + bit_words
+    overhead = config.get("sync_count", 0) + config.get("sfid_count", 0)
+    budget = max(0, config.get("words_per_minor", 0) - overhead - fixed_words)
+    subcom_channels = sum(sub_by_ratio.values())
+    subcom_positions = sum(_plan_subcom_columns(sub_by_ratio, budget).values())
+
+    total = fixed_words + subcom_positions
 
     return {
         "sensor": sensor_words,
         "digital": digital_words,
         "bit": bit_words,
         "subcom_positions": subcom_positions,
+        "subcom_channels": subcom_channels,
+        "subcom_stacked": subcom_channels > subcom_positions,
         "subcom_params": subcom_appearances,
         "total": total,
     }
@@ -314,6 +352,8 @@ def allocate_channels(config: dict) -> dict:
             "digital_ch": used_info["digital"],
             "bit_ch": used_info["bit"],
             "subcom_positions": used_info["subcom_positions"],
+            "subcom_channels": used_info["subcom_channels"],
+            "subcom_stacked": used_info["subcom_stacked"],
             "subcom_params": used_info["subcom_params"],
             "max_supercom": max_sc,
             "overhead_per_minor": overhead,
@@ -423,23 +463,45 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
                 cell["name"] = f"{p['name']}-1"   # sensor: occurrence = 1
             claim(pos, cell)
 
-    # ── Subcom: each channel owns one dedicated word position ──
-    # Appears at frames 0, R, 2R, … (starting at frame 0).
-    # All other frames at that position show RSVD.
-    subcom_schedule: list[dict] = []
+    # ── Subcom: horizontal first, vertical stacking when space runs out ──
+    # Preferred layout gives every subcom channel its own word position,
+    # sampled at frames 0, R, 2R, …  When the frame cannot afford that,
+    # channels of the same ratio share a position and are separated by SFID
+    # phase (frames where mf % R == phase) — IRIG-106 subframe commutation,
+    # so one position carries up to R channels.
+    subcom_by_pos: dict[int, list[dict]] = {}
 
-    for p in subcom_params:
-        pos = first_avail(overhead, W)
-        if pos is None:
-            continue  # frame full — overflow
-        avail[pos] = False  # reserve this position
-        ratio = p["subcom_ratio"]
-        appear_frames = set(range(0, Z, ratio))
-        subcom_schedule.append({
-            "position": pos,
-            "param": p,
-            "frames": appear_frames,
-        })
+    if subcom_params:
+        by_ratio: dict[int, list[dict]] = {}
+        for p in subcom_params:
+            by_ratio.setdefault(p["subcom_ratio"], []).append(p)
+
+        budget = sum(1 for i in range(overhead, W) if avail[i])
+        cols = _plan_subcom_columns({r: len(v) for r, v in by_ratio.items()},
+                                    budget)
+
+        for ratio in sorted(by_ratio):
+            plist = by_ratio[ratio]
+            positions: list[int] = []
+            for _ in range(min(cols[ratio], len(plist))):
+                pos = first_avail(overhead, W)
+                if pos is None:
+                    break           # frame full — overflow
+                avail[pos] = False  # reserve this position
+                positions.append(pos)
+            if not positions:
+                continue
+            n_cols = len(positions)
+            for j, p in enumerate(plist):
+                # Fill across the positions first, then wrap to the next
+                # phase — horizontal rows fill before stacking downward.
+                pos = positions[j % n_cols]
+                phase = (j // n_cols) % ratio
+                subcom_by_pos.setdefault(pos, []).append({
+                    "param": p,
+                    "phase": phase,
+                    "frames": set(range(phase, Z, ratio)),
+                })
 
     # ── Build Z minor frames ──
     frames = []
@@ -457,10 +519,14 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
         for pos, cell in fixed.items():
             frame[pos] = dict(cell)
 
-        for sched in subcom_schedule:
-            word_pos = sched["position"]
-            p = sched["param"]
-            if mf_idx in sched["frames"]:
+        # A subcom position may carry several phase-separated channels;
+        # at most one of them is active in any given minor frame.
+        for word_pos, scheds in subcom_by_pos.items():
+            cell = None
+            for sched in scheds:
+                if mf_idx not in sched["frames"]:
+                    continue
+                p = sched["param"]
                 cell = _make_cell_from_param(p)
                 if p.get("label_complete"):
                     cell["name"] = p["name"]       # digital: label already final
@@ -468,10 +534,10 @@ def _allocate_frames(W, Z, data_words, overhead, sync_count, sfid_count,
                     cell["name"] = f"{p['name']}-1"   # sensor: occurrence = 1
                 cell["subcom"] = True
                 cell["subcom_ratio"] = p["subcom_ratio"]
-                frame[word_pos] = cell
-            else:
-                frame[word_pos] = _make_cell("RSVD", "RSVD", "reserved",
-                                              "#F5F5F5", note="subcom spare")
+                cell["subcom_phase"] = sched["phase"]
+                break
+            frame[word_pos] = cell or _make_cell(
+                "RSVD", "RSVD", "reserved", "#F5F5F5", note="subcom spare")
 
         for i in range(W):
             if frame[i] is None:

@@ -183,12 +183,12 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
   <div onclick="event.stopPropagation()" style="background:#fff;border-radius:10px;padding:28px 32px;min-width:300px;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,.25);text-align:center">
     <div style="font-size:22px;font-weight:700;color:#0F4C81;margin-bottom:4px">PCM Channel Config Generator</div>
     <div style="font-size:13px;color:#4A5568;margin-bottom:16px">IRIG 106 Ch.4 Compliant</div>
-    <div style="display:inline-block;background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;border-radius:20px;padding:5px 20px;font-size:18px;font-weight:700;letter-spacing:1px;margin-bottom:16px">v1.2.0</div>
+    <div style="display:inline-block;background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;border-radius:20px;padding:5px 20px;font-size:18px;font-weight:700;letter-spacing:1px;margin-bottom:16px">v1.3.0</div>
     <div style="font-size:11px;color:#718096;line-height:1.7">
       © 2025 단암시스템즈 (Danam Systems)<br>
       Supercom: intelligent equidistant placement<br>
-      Subcom: dedicated word position per channel<br>
-      <span style="color:#1D4ED8;font-weight:600">New:</span> 분산형 장치 지원 (M / S1~S9), 모듈 슬롯 (S1~S10)<br>
+      Subcom: 가로 우선 배치, 공간 부족 시 세로 적층<br>
+      <span style="color:#1D4ED8;font-weight:600">New:</span> 서브컴 서브프레임 적층 (SFID 위상 분리)<br>
       채널 ID: {device}_{slot}_{module}-{ch:02d}-{supercom}
     </div>
     <button onclick="closeAbout()" style="margin-top:18px;padding:7px 28px;background:#1A6FB5;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600">닫기</button>
@@ -731,12 +731,17 @@ let lockedBitrate = 0; // 0 = unlocked, >0 = locked to this value
 // ─────────────────────────────────────────────────
 function buildWordMap(frames){
   if(!frames||!frames[0]) return null;
-  // label → [word positions (1-indexed)] from MF0 (fixed params appear in every frame)
-  const lp={};
-  frames[0].cells.forEach((c,wi)=>{
+  // label → [word positions (1-indexed)], scanned across every minor frame.
+  // Fixed params repeat identically in each frame, and stacked subcom
+  // channels only surface in the frames matching their phase — a Set keeps
+  // both cases correct.
+  const seen={};
+  frames.forEach(fr=>fr.cells.forEach((c,wi)=>{
     const n=c.name||''; if(!n||n==='RSVD'||n==='SYNC'||n==='SFID') return;
-    (lp[n]||(lp[n]=[])).push(wi+1);
-  });
+    (seen[n]||(seen[n]=new Set())).add(wi+1);
+  }));
+  const lp={};
+  Object.keys(seen).forEach(n=>{ lp[n]=[...seen[n]].sort((a,b)=>a-b); });
 
   // Helper: collect all word positions whose label starts with prefix
   const byPrefix=pref=>{
@@ -916,37 +921,67 @@ function maxSupercom(f){
 }
 // Channel usage per minor frame
 // supercom/normal: ch * supercom_ratio words per minor
-// subcom: each channel owns one dedicated word position (no sharing)
+// subcom: horizontal first (one dedicated word position per channel),
+//         stacking vertically into shared phase-separated positions only
+//         when the frame runs out of room -- see planSubcomCols()
 // Return channel groups for a sensor (supports both old {hz,ch} and new {channels})
 function _sGroups(s){ return s.channels&&s.channels.length?s.channels:[{count:s.ch||1,hz:s.hz||50}]; }
 // Total channel count for a sensor
 function _sCh(s){ return _sGroups(s).reduce((t,g)=>t+g.count,0); }
 
+// Decide how many word positions each subcom ratio group may occupy.
+// ratioCounts: {ratio: channelCount}, budget: free data words available.
+// Horizontal-first: every channel gets its own position when the frame can
+// afford it. Otherwise channels sharing a ratio R stack into one position,
+// separated by SFID phase (mf % R === phase) -- IRIG-106 subframe
+// commutation, so one position carries up to R channels.
+// Returns {ratio: columns}. Sum exceeds budget only when even the fully
+// stacked minimum does not fit (caller reports overflow).
+function planSubcomCols(ratioCounts, budget){
+  const cols={};
+  Object.keys(ratioCounts).forEach(k=>{
+    const r=+k; if(ratioCounts[k]>0) cols[r]=Math.max(1,Math.ceil(ratioCounts[k]/r));
+  });
+  let spare=budget-Object.values(cols).reduce((t,c)=>t+c,0);
+  while(spare>0){
+    const widenable=Object.keys(cols).filter(k=>cols[k]<ratioCounts[k]);
+    if(!widenable.length) break;
+    // Unstack the most densely packed group first
+    widenable.sort((a,b)=>(ratioCounts[b]/cols[b])-(ratioCounts[a]/cols[a])||(+b)-(+a));
+    cols[widenable[0]]++;
+    spare--;
+  }
+  return cols;
+}
+
 function calcUsed(f){
-  let su=0, du=0, subPos=0, subAppearances=0;
+  let su=0, du=0, subAppearances=0;
+  const subByRatio={};
+  const addSub=(ratio,cnt)=>{
+    subByRatio[ratio]=(subByRatio[ratio]||0)+cnt;
+    subAppearances+=cnt*Math.floor(f.Z/ratio);
+  };
   sensors.forEach(s=>{
     _sGroups(s).forEach(g=>{
-      if(isSubcom(g.hz,f)){
-        const ratio=subcomRatio(g.hz,f);
-        subPos += g.count;
-        subAppearances += g.count * Math.floor(f.Z / ratio);
-      } else {
-        su += g.count * supercom(g.hz,f);
-      }
+      if(isSubcom(g.hz,f)) addSub(subcomRatio(g.hz,f), g.count);
+      else su += g.count * supercom(g.hz,f);
     });
   });
   digital.forEach(d=>{
     const ch=Math.ceil(d.bits/f.B);
-    if(isSubcom(d.hz,f)){
-      const ratio=subcomRatio(d.hz,f);
-      subPos += ch;
-      subAppearances += ch * Math.floor(f.Z / ratio);
-    } else {
-      du += ch * supercom(d.hz,f);
-    }
+    if(isSubcom(d.hz,f)) addSub(subcomRatio(d.hz,f), ch);
+    else du += ch * supercom(d.hz,f);
   });
   const bu=bitData.reduce((t,b)=>t+Math.ceil(b.bytes/(f.B/8)),0);
-  return {su,du,bu,subPos,subSlots:subAppearances,total:su+du+bu+subPos};
+
+  const fixed=su+du+bu;
+  const budget=Math.max(0, f.W-f.sc-f.sf-fixed);
+  const subCh=Object.values(subByRatio).reduce((t,c)=>t+c,0);
+  const cols=planSubcomCols(subByRatio,budget);
+  const subPos=Object.values(cols).reduce((t,c)=>t+c,0);
+
+  return {su,du,bu,subPos,subCh,subStacked:subCh>subPos,
+          subSlots:subAppearances,total:fixed+subPos};
 }
 
 // ─────────────────────────────────────────────────
@@ -1072,7 +1107,9 @@ function onFrameChange(){
   if(used.subPos>0){
     subWrap.style.display='';
     document.getElementById('st-sub').textContent=used.subPos;
-    document.getElementById('st-sub-info').textContent=`${Math.round(used.subSlots)} appearances/major`;
+    document.getElementById('st-sub-info').textContent=used.subStacked
+      ? `${used.subCh}ch stacked (${Math.round(used.subSlots)} appear./major)`
+      : `${Math.round(used.subSlots)} appearances/major`;
   } else {
     subWrap.style.display='none';
   }
@@ -1290,10 +1327,12 @@ function buildRow(f,rowIdx,maxSc){
     }
   });
 
-  // 4. Subcom (Z>1): each channel owns one dedicated word position.
-  //    Appears at frames 0, ratio, 2*ratio, … (starting at frame 0).
-  //    All other frames at that position show RSVD.
-  //    No sharing between different subcom channels — same rule as Python engine.
+  // 4. Subcom (Z>1): horizontal first, vertical stacking when space runs out.
+  //    Preferred layout gives every subcom channel its own word position,
+  //    sampled at frames 0, R, 2R, …  When the frame cannot afford that,
+  //    channels of the same ratio share a position and are separated by SFID
+  //    phase (frames where mf % R === phase) — IRIG-106 subframe commutation,
+  //    so one position carries up to R channels. Same rule as Python engine.
   if(f.Z>1){
     const subParams=[];
     sensors.forEach(s=>{
@@ -1323,17 +1362,39 @@ function buildRow(f,rowIdx,maxSc){
         subParams.push({name:lbl,color:m.color,ratio});
       }
     });
-    // Each subcom channel gets its own dedicated word position.
-    // It appears at that position when rowIdx % ratio === 0, otherwise RSVD.
-    subParams.forEach(p=>{
-      const pos=firstAvail(overhead,W);
-      if(pos<0) return;
-      avail[pos]=false;
-      if(rowIdx%p.ratio===0)
-        frame[pos]={label:p.name,color:p.color,subcom:true};
-      else
-        frame[pos]={label:'RSVD',color:'#F5F5F5',subcom:false};
-    });
+    if(subParams.length){
+      const byRatio={};
+      subParams.forEach(p=>{ (byRatio[p.ratio]=byRatio[p.ratio]||[]).push(p); });
+      let budget=0;
+      for(let i=overhead;i<W;i++) if(avail[i]) budget++;
+      const counts={};
+      Object.keys(byRatio).forEach(r=>counts[r]=byRatio[r].length);
+      const cols=planSubcomCols(counts,budget);
+
+      Object.keys(byRatio).map(Number).sort((a,b)=>a-b).forEach(ratio=>{
+        const plist=byRatio[ratio];
+        const positions=[];
+        const want=Math.min(cols[ratio],plist.length);
+        for(let k=0;k<want;k++){
+          const pos=firstAvail(overhead,W);
+          if(pos<0) break;          // frame full — overflow
+          avail[pos]=false;         // reserve this position
+          positions.push(pos);
+        }
+        if(!positions.length) return;
+        const nCols=positions.length;
+        plist.forEach((p,j)=>{
+          // Fill across the positions first, then wrap to the next phase —
+          // horizontal rows fill before stacking downward.
+          const pos=positions[j%nCols];
+          const phase=Math.floor(j/nCols)%ratio;
+          if(rowIdx%ratio===phase)
+            frame[pos]={label:p.name,color:p.color,subcom:true};
+          else if(!frame[pos])
+            frame[pos]={label:'RSVD',color:'#F5F5F5',subcom:false};
+        });
+      });
+    }
   }
 
   // 5. Fill remaining with RSVD
@@ -2213,7 +2274,7 @@ document.addEventListener('keydown',e=>{
 loadSample();
 
 // ── About modal ──
-const APP_VERSION = 'v1.2.0';
+const APP_VERSION = 'v1.3.0';
 function showAbout(){
   const el=document.getElementById('about-overlay');
   el.style.display='flex';
