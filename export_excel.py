@@ -132,7 +132,13 @@ def _write_summary_sheet(wb: Workbook, config: dict, result: dict):
     ]
 
     if stats.get("subcom_positions", 0) > 0:
-        usage_data.append(("Subcom Positions", f"{stats['subcom_positions']} words ({stats.get('subcom_params', 0)} params)"))
+        usage_data.append(("Subcom Positions",
+                           f"{stats['subcom_positions']} words ({stats.get('subcom_params', 0)} params)"))
+        if stats.get("subcom_stacked"):
+            usage_data.append((
+                "Subcom Stacking",
+                f"{stats.get('subcom_channels', 0):,} ch stacked by SFID phase, "
+                f"spread over {stats.get('subcom_spread', 0)} words"))
 
     for label, value in usage_data:
         _styled_cell(ws, row, 1, label, font=BOLD_FONT)

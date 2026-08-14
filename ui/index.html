@@ -183,7 +183,7 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:var(--bg
   <div onclick="event.stopPropagation()" style="background:#fff;border-radius:10px;padding:28px 32px;min-width:300px;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,.25);text-align:center">
     <div style="font-size:22px;font-weight:700;color:#0F4C81;margin-bottom:4px">PCM Channel Config Generator</div>
     <div style="font-size:13px;color:#4A5568;margin-bottom:16px">IRIG 106 Ch.4 Compliant</div>
-    <div style="display:inline-block;background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;border-radius:20px;padding:5px 20px;font-size:18px;font-weight:700;letter-spacing:1px;margin-bottom:16px">v1.3.0</div>
+    <div style="display:inline-block;background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;border-radius:20px;padding:5px 20px;font-size:18px;font-weight:700;letter-spacing:1px;margin-bottom:16px">v1.3.1</div>
     <div style="font-size:11px;color:#718096;line-height:1.7">
       © 2025 단암시스템즈 (Danam Systems)<br>
       Supercom: intelligent equidistant placement<br>
@@ -743,11 +743,14 @@ function buildWordMap(frames){
   const lp={};
   Object.keys(seen).forEach(n=>{ lp[n]=[...seen[n]].sort((a,b)=>a-b); });
 
-  // Helper: collect all word positions whose label starts with prefix
+  // Helper: collect all word positions whose label starts with prefix.
+  // Stacked subcom puts several channels of one module on the same word
+  // position (different SFID phases), so the union must be deduped —
+  // the formatters below assume a strictly increasing position list.
   const byPrefix=pref=>{
-    const r=[];
-    Object.keys(lp).forEach(l=>{ if(l.startsWith(pref)) r.push(...lp[l]); });
-    return r.sort((a,b)=>a-b);
+    const r=new Set();
+    Object.keys(lp).forEach(l=>{ if(l.startsWith(pref)) lp[l].forEach(p=>r.add(p)); });
+    return [...r].sort((a,b)=>a-b);
   };
 
   // Sensors: prefix = {dev}_{slt}_{mod}-
@@ -769,11 +772,11 @@ function buildWordMap(frames){
   // Bits: prefix = VL{vl}_ or VL{vl}-
   const bitWords=bitData.map(b=>{
     const base=`VL${b.vl}`;
-    const r=[];
+    const r=new Set();
     Object.keys(lp).forEach(l=>{
-      if(l.startsWith(base+'-')||l.startsWith(base+'_')) r.push(...lp[l]);
+      if(l.startsWith(base+'-')||l.startsWith(base+'_')) lp[l].forEach(p=>r.add(p));
     });
-    return r.sort((a,b)=>a-b);
+    return [...r].sort((a,b)=>a-b);
   });
 
   return {sensors:sensorWords, digital:digitalWords, bits:bitWords};
@@ -819,7 +822,7 @@ function _compactWords(pos){
 // e.g. [4,5,6,7,84,85,86,87] → "4~7, 84~87"
 function _formatWordPosExport(positions){
   if(!positions||positions.length===0) return '';
-  const s=[...positions].sort((a,b)=>a-b);
+  const s=[...new Set(positions)].sort((a,b)=>a-b);
   const ranges=[];
   let rs=s[0],re=s[0];
   for(let i=1;i<s.length;i++){
@@ -977,10 +980,17 @@ function calcUsed(f){
   const fixed=su+du+bu;
   const budget=Math.max(0, f.W-f.sc-f.sf-fixed);
   const subCh=Object.values(subByRatio).reduce((t,c)=>t+c,0);
-  const cols=planSubcomCols(subByRatio,budget);
-  const subPos=Object.values(cols).reduce((t,c)=>t+c,0);
 
-  return {su,du,bu,subPos,subCh,subStacked:subCh>subPos,
+  // Committed footprint: the irreducible number of positions, reached when
+  // every ratio group is fully stacked. The allocator spreads wider than this
+  // whenever the frame has room (it keeps bulk packets contiguous), but those
+  // extra positions collapse again as soon as another parameter needs them —
+  // so they are spare capacity, not consumed words.
+  const subPos=Object.keys(subByRatio).reduce((t,r)=>t+Math.ceil(subByRatio[r]/r),0);
+  const cols=planSubcomCols(subByRatio,budget);
+  const subSpread=Object.values(cols).reduce((t,c)=>t+c,0);
+
+  return {su,du,bu,subPos,subSpread,subCh,subStacked:subCh>subSpread,
           subSlots:subAppearances,total:fixed+subPos};
 }
 
@@ -1108,7 +1118,7 @@ function onFrameChange(){
     subWrap.style.display='';
     document.getElementById('st-sub').textContent=used.subPos;
     document.getElementById('st-sub-info').textContent=used.subStacked
-      ? `${used.subCh}ch stacked (${Math.round(used.subSlots)} appear./major)`
+      ? `min (${used.subCh}ch -> ${used.subSpread} spread)`
       : `${Math.round(used.subSlots)} appearances/major`;
   } else {
     subWrap.style.display='none';
@@ -2274,7 +2284,7 @@ document.addEventListener('keydown',e=>{
 loadSample();
 
 // ── About modal ──
-const APP_VERSION = 'v1.3.0';
+const APP_VERSION = 'v1.3.1';
 function showAbout(){
   const el=document.getElementById('about-overlay');
   el.style.display='flex';

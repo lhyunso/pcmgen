@@ -186,12 +186,18 @@ def _calc_total_used(config: dict) -> dict:
     for b in config.get("bit_data", []):
         bit_words += math.ceil(b["bytes"] / (B / 8))
 
-    # How many word positions the subcom channels will actually consume
     fixed_words = sensor_words + digital_words + bit_words
     overhead = config.get("sync_count", 0) + config.get("sfid_count", 0)
     budget = max(0, config.get("words_per_minor", 0) - overhead - fixed_words)
     subcom_channels = sum(sub_by_ratio.values())
-    subcom_positions = sum(_plan_subcom_columns(sub_by_ratio, budget).values())
+
+    # Committed footprint: the irreducible number of positions, reached when
+    # every ratio group is fully stacked. The allocator spreads wider than
+    # this whenever the frame has room (it keeps bulk packets contiguous),
+    # but those extra positions collapse again as soon as another parameter
+    # needs them — so they are spare capacity, not consumed words.
+    subcom_positions = sum(math.ceil(n / r) for r, n in sub_by_ratio.items())
+    subcom_spread = sum(_plan_subcom_columns(sub_by_ratio, budget).values())
 
     total = fixed_words + subcom_positions
 
@@ -200,8 +206,9 @@ def _calc_total_used(config: dict) -> dict:
         "digital": digital_words,
         "bit": bit_words,
         "subcom_positions": subcom_positions,
+        "subcom_spread": subcom_spread,
         "subcom_channels": subcom_channels,
-        "subcom_stacked": subcom_channels > subcom_positions,
+        "subcom_stacked": subcom_channels > subcom_spread,
         "subcom_params": subcom_appearances,
         "total": total,
     }
@@ -352,6 +359,7 @@ def allocate_channels(config: dict) -> dict:
             "digital_ch": used_info["digital"],
             "bit_ch": used_info["bit"],
             "subcom_positions": used_info["subcom_positions"],
+            "subcom_spread": used_info["subcom_spread"],
             "subcom_channels": used_info["subcom_channels"],
             "subcom_stacked": used_info["subcom_stacked"],
             "subcom_params": used_info["subcom_params"],
